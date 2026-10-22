@@ -1,0 +1,63 @@
+# 行尾与编码统一
+#
+# 目标：仓库里存 LF、工作区也是 LF —— 跨平台一致，diff 不再因为行尾整文件重写。
+# 只有 Windows 脚本保留 CRLF（PowerShell 5.1 对 LF 的 .ps1 会遇到解析问题）。
+#
+# ⚠ 下面那批「显式文本」声明不是冗余：
+#   有几个文件历史上带过异常的 `\r\r` 行尾，Git 的 text=auto 会把它判成二进制
+#   （`git ls-files --eol` 显示 `i/-text`），于是**永远不参与规范化**。
+#   显式写 `text` 就是跳过二进制自动检测，强制按文本处理。
+
+* text=auto eol=lf
+
+# ---- 显式文本（跳过自动检测）----
+*.py      text eol=lf
+*.pyi     text eol=lf
+*.md      text eol=lf
+*.ts      text eol=lf
+*.tsx     text eol=lf
+*.js      text eol=lf
+*.jsx     text eol=lf
+*.json    text eol=lf
+*.toml    text eol=lf
+*.yaml    text eol=lf
+*.yml     text eol=lf
+*.html    text eol=lf
+*.css     text eol=lf
+*.lock    text eol=lf
+*.service text eol=lf
+*.example text eol=lf
+*.typed   text eol=lf
+
+# ---- Windows 脚本：保留 CRLF ----
+*.ps1  text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# ---- 二进制：绝不转换 ----
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.bmp   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.7z    binary
+*.exe   binary
+*.dll   binary
+*.so    binary
+*.dylib binary
+*.db    binary
+*.sqlite3 binary
+
+# ---- 前端构建产物：构建器写什么就是什么，不参与规范化 ----
+# 否则「重新构建」和「仓库里的产物」会因为行尾不同而永远对不上。
+# 放在最后 → 比上面的 *.js / *.html 更具体，优先级更高。
+src/haiqbot/webui/dist/** -text

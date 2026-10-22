@@ -1,1 +1,80 @@
-"""haiqbot —— QQ Bot 框架（OneBot v11 + 官方 OpenAPI 双通道）+ 插件生态。插件作者只需要：    from haiqbot import Plugin, Context, ServiceSpec, on_command"""from __future__ import annotationsfrom haiqbot.plugin_api import (    PLUGIN_API_VERSION,    ChannelId,    ChannelKind,    Context,    Event,    EventKind,    ImageProvider,    ImageRef,    MediaStore,    MessageEvent,    NoticeEvent,    PlatformCapabilities,    Plugin,    PluginManifest,    ProviderContext,    ProviderError,    Reply,    RequestEvent,    Role,    SecretHandle,    SecretSlot,    SecretValue,    Segment,    SegmentKind,    ServiceSpec,    get_logger,    on_command,    on_message,    on_meta,    on_notice,    on_regex,    on_request,    resolve_secret_ref,)__version__ = "0.1.0"__all__ = [    "PLUGIN_API_VERSION",    "ChannelId",    "ChannelKind",    "Context",    "Event",    "EventKind",    "ImageRef",    "MessageEvent",    "NoticeEvent",    "RequestEvent",    "PlatformCapabilities",    "Plugin",    "get_logger",    "MediaStore",    "ImageProvider",    "ProviderError",    "PluginManifest",    "Reply",    "ServiceSpec",    "Role",    "SecretSlot",    "resolve_secret_ref",    "SecretValue",    "SecretHandle",    "ProviderContext",    "Segment",    "SegmentKind",    "__version__",    "on_command",    "on_message",    "on_meta",    "on_notice",    "on_request",    "on_regex",]
+"""haiqbot —— QQ Bot 框架（OneBot v11 + 官方 OpenAPI 双通道）+ 插件生态。
+
+插件作者只需要：
+
+    from haiqbot import Plugin, Context, ServiceSpec, on_command
+"""
+from __future__ import annotations
+from haiqbot.plugin_api import (
+    PLUGIN_API_VERSION,
+    ChannelId,
+    ChannelKind,
+    Context,
+    Event,
+    EventKind,
+    ImageProvider,
+    ImageRef,
+    MediaStore,
+    MessageEvent,
+    NoticeEvent,
+    PlatformCapabilities,
+    Plugin,
+    PluginManifest,
+    ProviderContext,
+    ProviderError,
+    Reply,
+    RequestEvent,
+    Role,
+    SecretHandle,
+    SecretSlot,
+    SecretValue,
+    Segment,
+    SegmentKind,
+    ServiceSpec,
+    get_logger,
+    on_command,
+    on_message,
+    on_meta,
+    on_notice,
+    on_regex,
+    on_request,
+    resolve_secret_ref,
+)
+__version__ = "0.1.0"
+
+__all__ = [
+    "PLUGIN_API_VERSION",
+    "ChannelId",
+    "ChannelKind",
+    "Context",
+    "Event",
+    "EventKind",
+    "ImageRef",
+    "MessageEvent",
+    "NoticeEvent",
+    "RequestEvent",
+    "PlatformCapabilities",
+    "Plugin",
+    "get_logger",
+    "MediaStore",
+    "ImageProvider",
+    "ProviderError",
+    "PluginManifest",
+    "Reply",
+    "ServiceSpec",
+    "Role",
+    "SecretSlot",
+    "resolve_secret_ref",
+    "SecretValue",
+    "SecretHandle",
+    "ProviderContext",
+    "Segment",
+    "SegmentKind",
+    "__version__",
+    "on_command",
+    "on_message",
+    "on_meta",
+    "on_notice",
+    "on_request",
+    "on_regex",
+]
