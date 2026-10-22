@@ -1,6 +1,6 @@
 # 面板（WebUI）规格
 
-前端：`web/`（Vite 5 + React 18 + TypeScript，零运行时依赖除 react/react-router）
+前端：`web/`（Vite 5 + React 18 + TypeScript + Ant Design 6 + Recharts）
 后端：`src/haiqbot/webui/`（Starlette）
 产物：`src/haiqbot/webui/dist/`（**入库**，随 wheel 分发，部署机不需要 node）
 
@@ -13,8 +13,8 @@
 | 单令牌 + 会话 Cookie | 单用户工具，做多用户/角色是过度设计；但"读也公开"不行，读接口会泄露配置与审计 |
 | 无状态会话（HMAC 签名） | 没有服务端会话表，重启即失效；换令牌 = 踢掉所有会话 |
 | 写操作额外要 `X-Haiq-CSRF` | SameSite=Lax 已挡大部分跨站；反代场景下不保险，双保险成本极低 |
-| 轮询而非 SSE/WS | 面板要的是"刚刚发生了什么"，1~3 秒粒度够；少一层长连接故障面 |
-| **密钥真值永不经过面板** | 只展示"是否已设置"+ 复制命令，真值只在 vault |
+| **日志走 SSE，其余轮询** | 日志是唯一「刷得够快才有用」的页面，用 `EventSource`；其它页 1~3 秒轮询，少一层长连接故障面 |
+| **列表接口永不返回值** | 列表只给「已设置 / 未设置」；要看单条明文必须单独请求，且每次都写 `secret.reveal` 审计 |
 | 工作台只预演 | 不调用 `rule.invoker`，否则面板就变成"远程执行入口" |
 | dist 入库 | 部署与 CI 不需要 node；`npm run build` 只在前端改动时跑 |
 
@@ -50,6 +50,10 @@ GET  /api/auth/session                 → 当前会话信息（前端启动时�
 | 媒体 | `GET /api/media`、`DELETE /api/media/{id}`、**`GET /i/{id}`（唯一保留的旧路由：已发消息里的图片 URL 指向它）** |
 | 调用 | `GET /api/invocations`、`GET /api/invocations/stats`、`POST /api/invocations/delete` |
 | 工作台 | `POST /api/workbench/parse`（dry-run） |
+| 凭据 | `GET /api/secrets`（列表，不含值）、`GET /api/secrets/{key}`（单条明文，写审计）、`POST /api/secrets`（写入）、`DELETE /api/secrets/{key}`、`POST /api/secrets/passwd`（轮换主口令） |
+| 定时任务 | `GET /api/jobs`、`POST /api/jobs`、`POST /api/jobs/{id}/{enable,disable,run}`、`DELETE /api/jobs/{id}` |
+| 插件页面 | `GET /api/panels`、`GET /api/panels/{pid}`、`POST /api/panels/{pid}/action` |
+| 实时日志 | `GET /api/logs/stream?since=&level=`（SSE；并发上限 6，15 秒心跳） |
 
 **日志环形缓冲**：`kernel/log_ring.py`，400 条，纯内存。处理器排在脱敏之后 → 缓冲里天然没有真值。面板按 `seq` 增量拉取。
 
@@ -62,11 +66,12 @@ GET  /api/auth/session                 → 当前会话信息（前端启动时�
 ```
 web/src/
   api.ts            统一信封 + CSRF + 401 跳登录
-  lib/hooks.ts      usePoll / useToast / 时间格式化
-  components/ui.tsx Card / Stat / Pill / Dot / Empty / Banner / Toast / Field
-  pages/            Login、Overview、Plugins、ConfigCenter、Workbench、Observability、Channels
-  App.tsx           路由 + 登录门 + 左侧导航 + 顶栏状态
-  styles.css        设计令牌（暗色、13px 基准、6px 圆角、等宽数字）
+  main.tsx          入口（只渲染 V2App）
+  v2/App.tsx        登录门 + 左侧导航（含插件自注册页）+ 顶栏（写权限 / 亮暗切换）
+  v2/theme.ts       Ant Design 主题 + 亮暗模式（localStorage: haiq-theme）
+  v2/lib.ts         usePoll（轮询 hook）/ 时间与时长格式化
+  v2/panels.tsx     PanelPage 渲染器（只认 4 类 section，未知降级为只读 JSON）
+  v2/pages/         Overview、Plugins、Workbench、Config、Observability、Channels、Secrets、Jobs
 ```
 
 开发：`cd web && npm run dev`（5173，`/api` 与 `/i` 代理到 8080）
@@ -80,7 +85,8 @@ web/src/
 - [x] 读接口也要会话（不止写）
 - [x] 写接口要 CSRF 头
 - [x] 只读模式一键封锁全部写操作
-- [x] 凭据只显示"是否已设置"与键名
+- [x] 凭据列表只显示「是否已设置」与键名；单条明文按需请求并写 `secret.reveal` 审计
+- [x] 写入只进 vault，绝不回写 `haiq.toml`
 - [x] 日志入缓冲前已脱敏
 - [x] 配置回滚前校验 TOML
 - [x] `/i/*` 只按 media_id 查，不接受路径

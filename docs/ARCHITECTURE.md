@@ -12,13 +12,13 @@
    ↓ 以及自己在 services 里声明过的服务句柄 ctx.service("…")
 内核五支柱   registry · bus · capabilities · governance · vault
    ↓ 只发放句柄，不认识任何具体能力
-内核基础设施   media_store · scheduler（框架自带的少数服务）
+内核基础设施   media_store · scheduler · jobs（框架自带的少数服务）
    ↓
 适配层   official(botpy) · onebot11 · mock   → 统一 Event/Segment/Channel/Reply
 ```
 
 
-## 三个核心设计
+## 四个核心设计
 
 ### 1. 能力协商取代平台判断
 
@@ -144,7 +144,7 @@ Windows「Internet 选项 → 局域网设置」里的代理会被 `httpx`（`tr
 | `haiqbot/core/*` | 协议无关抽象（Segment / Event / Channel / Reply） |
 | `haiqbot/kernel/bus.py` | 中间件链 + 优先级分发 + 超时 |
 | `haiqbot/kernel/matcher.py` | 声明式匹配（命令 / 正则 / 角色 / 平台） |
-| `haiqbot/kernel/registry.py` | 发现（entry point / 本地目录 / 内置）、加载、卸载、重载 |
+| `haiqbot/kernel/registry.py` | 发现（entry point / 本地目录）、加载、卸载、重载 |
 | `haiqbot/kernel/capabilities.py` | 基础设施句柄发放（net / storage / kv / schedule / moderation / platform） |
 | `haiqbot/kernel/plugin.py` | Plugin/Context/触发器 + `ServiceSpec` 服务契约 |
 | `haiqbot/kernel/governance.py` | 令牌桶 / 日配额 / 幂等 / 审计 |
@@ -155,6 +155,10 @@ Windows「Internet 选项 → 局域网设置」里的代理会被 `httpx`（`tr
 | `haiqbot/kernel/config_schema.py` | 配置字段的唯一定义（面板与校验共用） |
 | `haiqbot/kernel/control.py` | 面板写操作：令牌认证 / 字段白名单 / 热更 / 审计 |
 | `haiqbot/kernel/vault.py` | env / DPAPI / keyring / cmd 四后端 |
+| `haiqbot/kernel/jobs.py` | 持久化定时任务（interval / daily，动作白名单） |
+| `haiqbot/kernel/secret_index.py` | 凭据槽位索引（CLI 与面板共用） |
+| `haiqbot/kernel/channel_control.py` | 频道开关读写与体检（识别 5 类静默失效） |
+| `haiqbot/kernel/log_ring.py` | 面板日志环形缓冲（先脱敏再入缓冲） |
 | `plugins/painter/broker.py` | 唯一生图出网口（`image:generate` 的提供者） |
 | `plugins/chat/broker.py` | 唯一对话出网口（`llm:chat` 的提供者） |
 | `plugins/<id>/providers/` | 厂商实现（归插件所有） |

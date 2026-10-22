@@ -42,6 +42,42 @@ capabilities = []
    指错目录。`haiq doctor` 会打印实际发现到的插件来源（`本地目录 N 个（a,b,c）`），
    先跑它再排查别的。
 
+## 从写代码到跑起来（本地目录开发循环）
+
+1. 建目录：
+
+   ```
+   plugins/hello/__init__.py
+   plugins/hello/plugin.toml
+   ```
+
+2. 把 `hello` 加进 `haiq.toml` 的 `[plugins] enabled`（`plugin_dirs` 已指向 `plugins/`）。
+
+3. 重启 `haiq run`。日志里应该出现：
+
+   ```
+   plugin_loaded   plugin=hello rules=1 source=local version=0.1.0
+   ```
+
+   `source=local` 说明走的是本地目录；如果是 `entrypoint`，说明装了同名的 pip 包插件，
+   两者都会加载，容易互相干扰。
+
+4. 去面板「白名单与风控」把这个插件勾进目标群，再在群里试命令。
+
+**改代码后必须重启。** 插件是启动时 `import` 的，没有热重载；改 `plugin.toml`
+里的 `name` / `version` / `description` / `isolation` 同样要重启。
+（面板的「插件 → 重载」只重载单个插件，同样会重新 import。）
+
+排查对照：
+
+| 现象 | 优先级最高的一步 |
+|---|---|
+| 命令完全没反应 | 面板「插件与能力」看该插件是否 `loaded`；再看目标群的 `plugins` 列表有没有它 |
+| 日志 `plugin_local_import_failed` | 你的 `__init__.py` 在导入期抛异常了，日志里带异常类型和路径 |
+| 日志 `插件来源 0 个` | `plugin_dirs` 写错位置或路径不存在（见上一节） |
+| 被拒绝加载并提示 `api_version` | 插件的 `api_version` 与内核不一致，日志会写清期望值 |
+| `plugin.toml_invalid` | 清单不是合法 UTF-8 TOML（BOM 已容忍，语法错要自己修） |
+
 ## 触发器
 
 | 装饰器 | 说明 |
@@ -125,6 +161,32 @@ async def draw(self, ctx, prompt: str): ...
 
 # /画图 一只 橘色 的猫  →  prompt = "一只 橘色 的猫"
 ```
+
+## `require_at` 与多轮上下文
+
+`@on_message(require_at=True)` 只在「消息里 @ 了机器人」时命中 —— 闲聊类插件必须这么写，
+否则群里每句话它都要接。
+
+同一个能力可以有两种入口，**上下文语义不同**。`chat` 插件就是这么分的：
+
+| 入口 | 装饰器 | 上下文 |
+|---|---|---|
+| `@机器人 我叫小明` | `@on_message(require_at=True, priority=-30, block=True)` | **带历史**：保留最近 `history_turns` 轮（1 轮 = 一问一答），超出的丢弃 |
+| `/问 我叫什么` | `@on_command("问", aliases=["ask"])` | **不带历史**：单轮问答，说完就忘 |
+| `/重置对话` | `@on_command("重置对话")` | 清掉该会话的历史 |
+
+为什么这样分：`/问` 是「查一下」，用户期望干净的一次问答；`@机器人` 是「聊天」，
+期待它记得上文。混成一个入口就会出现「我问个公式，它却接着上一句」的困惑。
+
+实现细节（`chat` 插件可直接抄）：
+
+- 历史存在 `ctx.kv` 里，key 是 `hist:{channel}:{actor}` —— **按频道和用户分开**，
+  群里 A 的上下文不会串到 B；
+- 只在 `use_history=True` 的路径上 `_remember()`，单轮入口不写库；
+- `history_turns` 是面板可调的配置项，`0` 表示完全不带上下文。
+
+> `require_at` 依赖适配器把「是否 @ 了机器人」算出来（OneBot 侧扫消息段的 `at` 并比对 `self_id`）。
+> 如果协议端只上报纯文本、没有消息段，`require_at` 永远不会命中 —— 这时改用 `/命令` 入口。
 
 ## Context 里有什么
 
