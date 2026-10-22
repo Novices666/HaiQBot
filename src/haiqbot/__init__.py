@@ -4,7 +4,9 @@
 
     from haiqbot import Plugin, Context, ServiceSpec, on_command
 """
+
 from __future__ import annotations
+
 from haiqbot.plugin_api import (
     PLUGIN_API_VERSION,
     ChannelId,
@@ -40,6 +42,7 @@ from haiqbot.plugin_api import (
     on_request,
     resolve_secret_ref,
 )
+
 __version__ = "0.1.0"
 
 __all__ = [

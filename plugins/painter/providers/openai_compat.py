@@ -3,17 +3,24 @@
 兼容但不限于：OpenAI 官方、各类中转网关、自建 one-api 等。
 密钥只从 vault 取，取完立刻进入脱敏名单；本模块任何异常信息都不含密钥。
 """
+
 from __future__ import annotations
+
 import base64
 import binascii
 from collections.abc import Callable
 from typing import Any
+
 from haiqbot.plugin_api import ProviderError, get_logger
+
 from ..config import ImageCfg
+
 log = get_logger(__name__)
+
 
 class OpenAICompatProvider:
     name = "openai_compat"
+
     def __init__(
         self,
         auth: Callable[[], dict[str, str]],
@@ -27,17 +34,21 @@ class OpenAICompatProvider:
         self.cfg = cfg
         self._client = client
         self.timeout = timeout if timeout is not None else cfg.timeout_seconds
+
     # -- HTTP ------------------------------------------------------------- #
     def _http(self) -> Any:
         if self._client is not None:
             return self._client
         import httpx
+
         self._client = httpx.AsyncClient(timeout=self.timeout, follow_redirects=True)
         return self._client
+
     async def aclose(self) -> None:
         if self._client is not None and hasattr(self._client, "aclose"):
             await self._client.aclose()
             self._client = None
+
     # -- 主流程 ----------------------------------------------------------- #
     async def generate(self, prompt: str, size: str | None = None) -> tuple[bytes, str]:
         url = self.cfg.base_url.rstrip("/") + "/images/generations"
@@ -63,6 +74,7 @@ class OpenAICompatProvider:
         except Exception as exc:  # noqa: BLE001
             raise ProviderError("生图接口返回了非 JSON 响应") from exc
         return await self._extract(body)
+
     async def _extract(self, body: dict[str, Any]) -> tuple[bytes, str]:
         items = body.get("data") or []
         if not items:
@@ -76,6 +88,7 @@ class OpenAICompatProvider:
         if link := item.get("url"):
             return await self._download(link)
         raise ProviderError("生图接口返回体既无 b64_json 也无 url")
+
     async def _download(self, link: str) -> tuple[bytes, str]:
         """把带签名的临时 URL 拉成字节 —— 这个 URL 不会外传。"""
         client = self._http()

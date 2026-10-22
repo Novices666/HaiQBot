@@ -2,15 +2,21 @@
 
 和 `ImageBroker` 一样：插件只能拿到 `ctx.llm.chat(...)`，看不到 key 与 endpoint。
 """
+
 from __future__ import annotations
+
 import time
 from typing import Any, Protocol, runtime_checkable
+
 from haiqbot.plugin_api import ProviderError, get_logger
+
 log = get_logger(__name__)
+
 
 @runtime_checkable
 class ChatProvider(Protocol):
     name: str
+
     async def complete(
         self,
         messages: list[dict[str, str]],
@@ -19,6 +25,7 @@ class ChatProvider(Protocol):
         max_tokens: int,
         temperature: float,
     ) -> str: ...
+
 
 class LLMBroker:
     def __init__(
@@ -35,6 +42,7 @@ class LLMBroker:
         self.system_prompt = system_prompt
         self.max_tokens = max_tokens
         self.temperature = temperature
+
     async def chat(
         self,
         messages: str | list[dict[str, str]],
@@ -65,6 +73,7 @@ class LLMBroker:
             elapsed_ms=int((time.time() - t0) * 1000),
         )
         return text
+
     def _with_system(self, messages: str | list[dict[str, str]]) -> list[dict[str, str]]:
         """既收单条问题（str），也收完整消息列表。
 
@@ -79,6 +88,7 @@ class LLMBroker:
         if any(m.get("role") == "system" for m in turns):
             return turns
         return [{"role": "system", "content": self.system_prompt}, *turns]
+
     def describe(self) -> dict[str, Any]:
         return {
             "provider": getattr(self.provider, "name", "unknown"),

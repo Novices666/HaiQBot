@@ -5,10 +5,15 @@
 
 插件只能拿到最后的 `ImageRef`（含无参数 URL），拿不到 key、endpoint、签名 URL。
 """
+
 from __future__ import annotations
+
 from typing import Any
+
 from haiqbot.plugin_api import ImageProvider, ImageRef, MediaStore, ProviderError, get_logger
+
 log = get_logger(__name__)
+
 
 class ImageBroker:
     def __init__(
@@ -24,6 +29,7 @@ class ImageBroker:
         self.default_size = default_size
         # 谁提供的这个能力 —— 落进 media 表，面板「媒体」页才能按插件筛
         self.plugin_id = plugin_id
+
     async def generate(self, prompt: str, *, size: str | None = None) -> ImageRef:
         data, mime = await self.provider.generate(prompt, size or self.default_size)
         limit = int(getattr(self, "max_prompt", 0) or 0)
@@ -37,6 +43,7 @@ class ImageBroker:
             media_id=ref.id,
         )
         return ImageRef(media_id=ref.id, url=ref.url, mime=mime, path=ref.path)
+
     def describe(self) -> dict[str, Any]:
         return {
             "provider": getattr(self.provider, "name", "unknown"),

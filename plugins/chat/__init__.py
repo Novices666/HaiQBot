@@ -9,9 +9,12 @@
 
 LLM 延迟通常 10s+，所以先 ack 再补答案，并且声明了 150s 的 handler 超时。
 """
+
 from __future__ import annotations
+
 import json
 from typing import Any
+
 from haiqbot.plugin_api import (
     Context,
     Plugin,
@@ -21,8 +24,10 @@ from haiqbot.plugin_api import (
     on_command,
     on_message,
 )
+
 CHAT_MODELS = ("deepseek-v4.1-flash", "deepseek-v4-flash", "deepseek-v4-pro", "gpt-4o-mini")
 DEFAULT_HISTORY_TURNS = 6
+
 
 class Chat(Plugin):
     id = "chat"
@@ -41,6 +46,7 @@ class Chat(Plugin):
     }
     # 自己提供自己消费：自提供的服务自动视为已满足
     services = {"llm:chat": "1"}
+
     @classmethod
     def config_schema(cls) -> list[dict[str, Any]]:
         return [
@@ -104,6 +110,7 @@ class Chat(Plugin):
                 "description": "收到问题后先回的那句话。留空 = 不发回执（只发最终答案）。",
             },
         ]
+
     # -- 能力提供 --------------------------------------------------------- #
     secrets = {
         "api_key": SecretSlot(
@@ -112,12 +119,14 @@ class Chat(Plugin):
             description="OpenAI 兼容的 chat/completions 密钥",
         ),
     }
+
     def build_chat_service(self, pctx: ProviderContext) -> Any:
         """构造对话服务。凭据通过槽位 `api_key` 取，provider 不接触密钥。"""
         from .broker import LLMBroker
         from .config import ChatCfg
         from .providers.mock import MockChatProvider
         from .providers.openai_compat import OpenAICompatChatProvider
+
         cfg = ChatCfg.model_validate(dict(pctx.config))
         if cfg.provider == "mock":
             provider: Any = MockChatProvider()
@@ -132,16 +141,19 @@ class Chat(Plugin):
         )
         broker.max_input_chars = cfg.max_input_chars
         return broker
+
     # -- 入口 ------------------------------------------------------------- #
     @on_command("问", aliases=["ask", "ai"], usage="问 <问题>", priority=15, timeout=150)
     async def ask(self, ctx: Context, question: str = "") -> None:
         await self._answer(ctx, question, use_history=False)
+
     @on_message(require_at=True, priority=-30, block=True, timeout=150)
     async def talk(self, ctx: Context) -> None:
         text = ctx.event.text.strip() if ctx.event else ""
         if not text or text.startswith("/"):
             return
         await self._answer(ctx, text, use_history=True)
+
     # -- 主流程 ----------------------------------------------------------- #
     async def _answer(self, ctx: Context, question: str, *, use_history: bool) -> None:
         text = question.strip()
@@ -162,12 +174,14 @@ class Chat(Plugin):
         if use_history:
             await self._remember(ctx, text, answer)
         await ctx.reply.text(answer)
+
     # -- 上下文 ----------------------------------------------------------- #
     @staticmethod
     def _history_key(ctx: Context) -> str:
         channel = ctx.event.channel if ctx.event else "unknown"
         actor = ctx.event.actor.id if ctx.event else "unknown"
         return f"hist:{channel}:{actor}"
+
     @staticmethod
     def _history_limit(ctx: Context) -> int:
         """保留多少条消息。`history_turns` 是轮数（1 轮 = 一问一答 = 2 条）。"""
@@ -177,6 +191,7 @@ class Chat(Plugin):
         except (TypeError, ValueError):
             turns = DEFAULT_HISTORY_TURNS
         return turns * 2
+
     async def _build_messages(
         self, ctx: Context, text: str, *, use_history: bool
     ) -> list[dict[str, str]] | str:
@@ -196,6 +211,7 @@ class Chat(Plugin):
         ]
         limit = self._history_limit(ctx)
         return [*cleaned[-limit:], {"role": "user", "content": text}] if limit else text
+
     async def _remember(self, ctx: Context, question: str, answer: str) -> None:
         if ctx.kv is None:
             return
@@ -211,6 +227,7 @@ class Chat(Plugin):
         history.append({"role": "assistant", "content": answer})
         limit = self._history_limit(ctx)
         await ctx.kv.set(key, json.dumps(history[-limit:] if limit else [], ensure_ascii=False))
+
     # -- 管理 ------------------------------------------------------------- #
     @on_command("重置对话", aliases=["reset"], usage="重置对话", priority=15, timeout=30)
     async def reset(self, ctx: Context) -> None:

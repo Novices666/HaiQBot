@@ -9,24 +9,31 @@
 3. **先落盘再热更**：持久化失败就不动内存，避免"面板显示已改、重启后打回原形"。
    例外是 `config_path` 缺失（比如全默认配置），此时照常热更但返回 warning。
 """
+
 from __future__ import annotations
+
 import hmac
 import re
 import uuid
 from pathlib import Path
 from typing import Any
+
 from haiqbot.kernel.config_schema import APPLY_LABELS, GROUP_LABELS, SCHEMA, Field, read_value, write_value
 from haiqbot.kernel.config_schema import BY_PATH as _BY_PATH
 from haiqbot.kernel.config_writer import write_config
 from haiqbot.kernel.log import get_logger
+
 log = get_logger(__name__)
+
 
 class ControlError(Exception):
     """控制面业务错误，`status_code` 直接映射 HTTP 状态码。"""
+
     def __init__(self, message: str, status_code: int = 400) -> None:
         super().__init__(message)
         self.message = message
         self.status_code = status_code
+
 
 # 只暴露"是否已设置"的 vault 键（真值永不外带）
 # scope 以 "plugin:" 开头表示插件配置段（生图 / 对话已归插件所有）
@@ -38,6 +45,7 @@ SECRET_REFS: tuple[tuple[str, str, str], ...] = (
     ("webui", "token_ref", "面板写操作令牌"),
 )
 
+
 def _secret_ref(runtime: Any, scope: str, key: str) -> str:
     if scope.startswith("plugin:"):
         cfg = runtime.config.plugin_config.get(scope[len("plugin:") :]) or {}
@@ -45,7 +53,9 @@ def _secret_ref(runtime: Any, scope: str, key: str) -> str:
     holder = getattr(runtime.config, scope, None)
     return str(getattr(holder, key, "") or "")
 
+
 # -- 认证 ------------------------------------------------------------------ #
+
 
 def _bearer(header: str | None) -> str | None:
     if not header:
@@ -54,6 +64,7 @@ def _bearer(header: str | None) -> str | None:
     if len(parts) != 2 or parts[0].lower() != "bearer":
         return None
     return parts[1].strip() or None
+
 
 def require_write_token(runtime: Any, authorization: str | None) -> None:
     """校验写操作令牌。不通过就抛 ControlError。"""
@@ -70,7 +81,9 @@ def require_write_token(runtime: Any, authorization: str | None) -> None:
     if not presented or not hmac.compare_digest(presented, expected):
         raise ControlError("写操作令牌无效", 401)
 
+
 # -- 读取 ------------------------------------------------------------------ #
+
 
 def _secret_status(runtime: Any) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
@@ -85,6 +98,7 @@ def _secret_status(runtime: Any) -> list[dict[str, Any]]:
         out.append({"path": f"{scope}.{key}", "label": label, "ref": ref, "set": present})
     return out
 
+
 def _jsonable(value: Any) -> Any:
     """把 Path / 元组之类转成 JSON 能表示的形式。"""
     if isinstance(value, Path):
@@ -92,6 +106,7 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_jsonable(v) for v in value]
     return value
+
 
 def describe(runtime: Any) -> dict[str, Any]:
     """面板配置页的数据源。包含字段当前值与密钥存在性，**不含任何密钥真值**。"""
@@ -124,7 +139,9 @@ def describe(runtime: Any) -> dict[str, Any]:
         "secrets": _secret_status(runtime),
     }
 
+
 # -- 写入 ------------------------------------------------------------------ #
+
 
 def _coerce(spec: Field, raw: Any) -> Any:
     if spec.readonly:
@@ -167,6 +184,7 @@ def _coerce(spec: Field, raw: Any) -> Any:
         raise ControlError(f"{spec.label} 过长（上限 4000 字符）")
     return text
 
+
 def _sync_derived(runtime: Any, path: str) -> None:
     """把配置变更同步到「构造时拷走了值」的运行时对象上。
 
@@ -183,7 +201,9 @@ def _sync_derived(runtime: Any, path: str) -> None:
         runtime.resolver.admins = set(cfg.policy.admins)
     elif path in {"log.level", "log.json"}:
         from haiqbot.kernel.log import configure_logging
+
         configure_logging(cfg.log_level, cfg.log_json)
+
 
 def apply_changes(runtime: Any, changes: dict[str, Any]) -> dict[str, Any]:
     """校验 → 落盘 → 热更。返回 `{"changed": [...], "warnings": [...]}`。"""
@@ -234,10 +254,12 @@ def apply_changes(runtime: Any, changes: dict[str, Any]) -> dict[str, Any]:
         warnings.append("以下改动需要额外操作才生效：" + "、".join(deferred))
     return {"changed": changed, "warnings": warnings}
 
+
 def _persist_enabled(cfg: Any, ids: list[str]) -> None:
     if not cfg.config_path:
         return
     write_config(Path(cfg.config_path), {"plugins.enabled": list(ids)})
+
 
 async def set_plugin_enabled(runtime: Any, registry: Any, pid: str, enabled: bool) -> dict[str, Any]:
     """启停插件：同步 `plugins.enabled` + 运行时装载/卸载 + 落盘。"""
@@ -267,6 +289,7 @@ async def set_plugin_enabled(runtime: Any, registry: Any, pid: str, enabled: boo
     unloaded = await registry.unload(pid)
     return {"id": pid, "enabled": False, "loaded": False, "note": "已停用" if unloaded else "原本未加载"}
 
+
 async def reload_plugin(registry: Any, pid: str) -> dict[str, Any]:
     known = registry.discover()
     if pid not in known:
@@ -276,14 +299,17 @@ async def reload_plugin(registry: Any, pid: str) -> dict[str, Any]:
     await registry.reload(pid)
     return {"id": pid, "reloaded": True}
 
+
 def new_trace_id() -> str:
     return uuid.uuid4().hex[:12]
+
 
 # -- 插件私有参数（haiq.toml 的 [plugins.<id>]） ---------------------------- #
 
 _PLUGIN_KEY_RE = re.compile(r"^[A-Za-z0-9_]{1,64}$")
 # *_ref 的**值**只能是键名，不能是密钥本身
 _REF_VALUE_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
 
 def _coerce_plugin_value(key: str, raw: Any) -> Any:
     if not _PLUGIN_KEY_RE.match(key):
@@ -299,6 +325,7 @@ def _coerce_plugin_value(key: str, raw: Any) -> Any:
     if key.endswith("_ref") and not _REF_VALUE_RE.match(raw):
         raise ControlError(f"{key} 只能填 vault 里的键名（字母/数字/._-），不要粘贴密钥本身")
     return raw
+
 
 def plugin_settings(runtime: Any, registry: Any, pid: str) -> dict[str, Any]:
     """单个插件的设置页数据：当前值 + 它自己声明的表单。"""
@@ -317,6 +344,7 @@ def plugin_settings(runtime: Any, registry: Any, pid: str) -> dict[str, Any]:
         "schema": schema,
         "loaded": pid in registry.handles(),
     }
+
 
 def apply_plugin_config(runtime: Any, registry: Any, pid: str, changes: dict[str, Any]) -> dict[str, Any]:
     """写 `[plugins.<id>]` 并热更新内存里的 `ctx.config`。

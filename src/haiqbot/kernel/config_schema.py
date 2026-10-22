@@ -10,8 +10,11 @@
 
 插件私有参数（`[plugins.<id>]`）不在这里 —— 由插件自己的 `config_schema()` 声明。
 """
+
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 # -- 生效方式 --------------------------------------------------------------- #
 # hot          保存即生效
 # plugin_reload 需要重载相关插件（能力句柄是加载时构造的）
@@ -33,6 +36,7 @@ GROUP_LABELS = {
     "service": "服务",
 }
 
+
 @dataclass(frozen=True, slots=True)
 class Field:
     section: str  # "" = 顶层
@@ -46,14 +50,17 @@ class Field:
     maximum: float | None = None
     readonly: bool = False
     help: str = ""
+
     @property
     def path(self) -> str:
         return f"{self.section}.{self.key}" if self.section else self.key
+
     @property
     def toml_path(self) -> str:
         """落盘用的键路径。顶层字段（`log_level` 等）不带段名。"""
         alias = _FIELD_ALIAS.get(self.path)
         return alias if alias is not None else self.path
+
 
 SCHEMA: tuple[Field, ...] = (
     # -- 接入：OneBot ------------------------------------------------------- #
@@ -224,6 +231,7 @@ _FIELD_ALIAS = {
     "path.plugin_dirs": "plugin_dirs",
 }
 
+
 def read_value(config: object, field: Field) -> object:
     """按 Field 从 HaiqConfig 上取值。"""
     alias = _FIELD_ALIAS.get(field.path)
@@ -231,6 +239,7 @@ def read_value(config: object, field: Field) -> object:
         return getattr(config, alias, None)
     section = getattr(config, field.section, None)
     return getattr(section, field.key, None) if section is not None else None
+
 
 def write_value(config: object, field: Field, value: object) -> None:
     """把值写回 HaiqConfig。"""
@@ -242,6 +251,7 @@ def write_value(config: object, field: Field, value: object) -> None:
     if section is None:
         raise KeyError(f"配置段不存在：{field.section}")
     setattr(section, field.key, value)
+
 
 def group_of(field: Field) -> str:
     return GROUP_LABELS.get(field.group, field.group)

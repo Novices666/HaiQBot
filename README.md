@@ -84,6 +84,7 @@ HaiQBot/
 # plugins/hello/__init__.py
 from haiqbot import Context, Plugin, on_command
 
+
 class Hello(Plugin):
     id = "hello"
     name = "打招呼"

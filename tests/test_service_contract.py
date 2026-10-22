@@ -4,14 +4,19 @@
 - **能力**（image/llm/moderation…）：内核定义，消费者可选、缺了能降级；
 - **服务**（economy、quiz…）：插件定义，硬依赖，缺了**这个插件就不加载**。
 """
+
 from __future__ import annotations
+
 import textwrap
 from pathlib import Path
 from typing import Any
+
 import pytest
+
 from haiqbot.core.errors import CapabilityDenied, CapabilityUnavailable, ContractError
 from haiqbot.kernel.registry import Registry
 from haiqbot.kernel.runtime import Runtime
+
 PROVIDER = """
 from haiqbot import Plugin
 from haiqbot.kernel.plugin import ServiceSpec
@@ -55,6 +60,7 @@ class Spender(Plugin):
         self.seen = ctx.service("economy").balance("u1")
 """
 
+
 def _mk_plugin(base: Path, pid: str, body: str, *, version: str = "0.1.0") -> Path:
     d = base / pid
     d.mkdir(parents=True, exist_ok=True)
@@ -62,20 +68,24 @@ def _mk_plugin(base: Path, pid: str, body: str, *, version: str = "0.1.0") -> Pa
     (d / "__init__.py").write_text(textwrap.dedent(body).lstrip(), encoding="utf-8")
     return d
 
+
 @pytest.fixture
 def plugins_dir(tmp_path: Path) -> Path:
     base = tmp_path / "ext"
     base.mkdir()
     return base
 
+
 def _registry(runtime: Runtime, base: Path, enabled: list[str]) -> Registry:
     runtime.config.plugin_dirs = [base]
     runtime.config.plugins_enabled = enabled
     return Registry(runtime, storage_root=base.parent / "storage")
 
+
 # --------------------------------------------------------------------------- #
 # 正常路径
 # --------------------------------------------------------------------------- #
+
 
 async def test_dependency_loads_first_and_is_usable(runtime: Runtime, plugins_dir: Path) -> None:
     _mk_plugin(plugins_dir, "economy", PROVIDER)
@@ -89,6 +99,7 @@ async def test_dependency_loads_first_and_is_usable(runtime: Runtime, plugins_di
     assert "economy" in runtime.service_specs
     assert runtime.service_specs["economy"].version == 1
 
+
 async def test_proxy_follows_withdraw(runtime: Runtime, plugins_dir: Path) -> None:
     """提供方被卸载后，缓存的代理要立刻失效 —— 否则热插拔就是假的。"""
     _mk_plugin(plugins_dir, "economy", PROVIDER)
@@ -101,9 +112,11 @@ async def test_proxy_follows_withdraw(runtime: Runtime, plugins_dir: Path) -> No
     with pytest.raises(CapabilityUnavailable):
         proxy.balance("u1")
 
+
 # --------------------------------------------------------------------------- #
 # 硬约束：缺服务就不加载
 # --------------------------------------------------------------------------- #
+
 
 async def test_missing_service_blocks_load(runtime: Runtime, plugins_dir: Path) -> None:
     _mk_plugin(plugins_dir, "spender", CONSUMER)
@@ -113,6 +126,7 @@ async def test_missing_service_blocks_load(runtime: Runtime, plugins_dir: Path) 
     blocked = reg.blocked()
     assert "spender" in blocked
     assert "economy" in " ".join(blocked["spender"])
+
 
 async def test_version_mismatch_blocks_load(runtime: Runtime, plugins_dir: Path) -> None:
     _mk_plugin(plugins_dir, "economy", PROVIDER)
@@ -128,6 +142,7 @@ async def test_version_mismatch_blocks_load(runtime: Runtime, plugins_dir: Path)
     assert "spender" in blocked
     assert "需要 v2" in " ".join(blocked["spender"])
 
+
 async def test_contract_method_missing_blocks_provide(runtime: Runtime, plugins_dir: Path) -> None:
     """契约写了 balance，实现里没有 → 提供方自己加载失败，而不是让消费方运行时炸。"""
     bad = PROVIDER.replace('methods=("add", "balance")', 'methods=("add", "balance", "transfer")')
@@ -136,6 +151,7 @@ async def test_contract_method_missing_blocks_provide(runtime: Runtime, plugins_
     assert await reg.load_enabled() == []
     err = next(r for r in reg.status() if r["id"] == "economy")["error"]
     assert "缺少契约方法" in err and "transfer" in err
+
 
 async def test_service_without_contract_is_reported_precisely(runtime: Runtime, plugins_dir: Path) -> None:
     """老写法（provides 只给方法名）没有契约：消费方会得到"没有声明契约"的提示。"""
@@ -155,9 +171,11 @@ async def test_service_without_contract_is_reported_precisely(runtime: Runtime, 
     assert "spender" in blocked
     assert "没有声明契约" in " ".join(blocked["spender"])
 
+
 # --------------------------------------------------------------------------- #
 # 边界：没声明就不给
 # --------------------------------------------------------------------------- #
+
 
 async def test_undeclared_service_is_denied(runtime: Runtime, plugins_dir: Path) -> None:
     greedy = CONSUMER.replace('    services = {"economy": "1"}\n', "")
@@ -168,14 +186,17 @@ async def test_undeclared_service_is_denied(runtime: Runtime, plugins_dir: Path)
     err = next(r for r in reg.status() if r["id"] == "spender")["error"]
     assert "没有声明服务" in err
 
+
 def test_service_denied_error_type() -> None:
     """边界错误的类型要对：越权 = CapabilityDenied，不可用 = CapabilityUnavailable。"""
     assert issubclass(CapabilityDenied, Exception)
     assert not issubclass(CapabilityDenied, CapabilityUnavailable)
 
+
 # --------------------------------------------------------------------------- #
 # 依赖成环
 # --------------------------------------------------------------------------- #
+
 
 async def test_cycle_is_reported_not_silently_loaded(runtime: Runtime, plugins_dir: Path) -> None:
     a = """
@@ -202,6 +223,7 @@ async def test_cycle_is_reported_not_silently_loaded(runtime: Runtime, plugins_d
     loaded = await reg.load_enabled()
     assert sorted(loaded) == ["a", "b"]
     assert "__dependencies__" in reg.status_errors
+
 
 def _noop(*_a: Any) -> None:
     pass

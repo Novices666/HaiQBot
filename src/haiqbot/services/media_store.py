@@ -8,14 +8,18 @@
 
 对外只有 `/i/{id}`，没有查询串，爆破不了。
 """
+
 from __future__ import annotations
+
 import secrets
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
 from haiqbot.config import MediaCfg, WebuiCfg
 from haiqbot.kernel.log import get_logger
+
 log = get_logger(__name__)
 
 _EXT_BY_MIME = {
@@ -26,12 +30,14 @@ _EXT_BY_MIME = {
     "image/gif": ".gif",
 }
 
+
 @dataclass(frozen=True, slots=True)
 class MediaRef:
     id: str
     path: Path
     mime: str
     url: str
+
 
 class MediaStore:
     def __init__(
@@ -46,14 +52,17 @@ class MediaStore:
         self.dir = Path(cfg.dir)
         self.dir.mkdir(parents=True, exist_ok=True)
         self._webui = webui or WebuiCfg()
+
     # -- 地址 ------------------------------------------------------------- #
     @property
     def base_url(self) -> str:
         if self.cfg.public_base_url:
             return self.cfg.public_base_url.rstrip("/")
         return f"http://{self._webui.host}:{self._webui.port}"
+
     def url_for(self, media_id: str) -> str:
         return f"{self.base_url}/i/{media_id}"
+
     # -- 写入 ------------------------------------------------------------- #
     async def put(
         self,
@@ -70,6 +79,7 @@ class MediaStore:
         await self.store.media_add(media_id, str(path), mime, float(self.cfg.ttl_seconds), channel, plugin_id)
         log.info("media_stored", media_id=media_id, bytes=len(data), mime=mime)
         return MediaRef(id=media_id, path=path, mime=mime, url=self.url_for(media_id))
+
     # -- 读取 ------------------------------------------------------------- #
     async def get_path(self, media_id: str) -> Path | None:
         if not _looks_valid(media_id):
@@ -81,9 +91,11 @@ class MediaStore:
         if not path.is_file():
             return None
         return path
+
     async def get_mime(self, media_id: str) -> str:
         row = await self.store.media_get(media_id)
         return str(row["mime"]) if row else "application/octet-stream"
+
     # -- 清理 ------------------------------------------------------------- #
     async def gc(self) -> int:
         expired = await self.store.media_expired()
@@ -98,6 +110,7 @@ class MediaStore:
         if removed:
             log.info("media_gc", removed=removed, at=int(time.time()))
         return removed
+
 
 def _looks_valid(media_id: str) -> bool:
     if not media_id or len(media_id) > 64:

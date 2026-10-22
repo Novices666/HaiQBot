@@ -1,15 +1,22 @@
 """统一文件后端的测试：JSON 信封 + enc=aead/none，所有平台同一套。"""
+
 from __future__ import annotations
+
 import base64
 import json
 from pathlib import Path
+
 import pytest
+
 from haiqbot.config import HaiqConfig, VaultCfg
 from haiqbot.kernel.vault import FileBackend, Vault, VaultError
+
 PASS = "correct horse battery staple"
+
 
 def _backend(path: Path, *, enc: str = "aead", pw: str | None = PASS) -> FileBackend:
     return FileBackend(path, enc=enc, passphrase=lambda: pw)
+
 
 def test_aead_roundtrip_and_envelope(tmp_path: Path) -> None:
     path = tmp_path / "vault.json"
@@ -24,11 +31,13 @@ def test_aead_roundtrip_and_envelope(tmp_path: Path) -> None:
     # 换一个实例也能读回（说明不依赖进程内缓存）
     assert _backend(path).get("WEFT_IMAGE_API_KEY") == "sk-abcdefghijklmnop"
 
+
 def test_wrong_passphrase_raises(tmp_path: Path) -> None:
     path = tmp_path / "vault.json"
     _backend(path).set("K", "v")
     with pytest.raises(VaultError):
         _backend(path, pw="wrong").get("K")
+
 
 def test_missing_passphrase_raises_with_hint(tmp_path: Path) -> None:
     path = tmp_path / "vault.json"
@@ -36,6 +45,7 @@ def test_missing_passphrase_raises_with_hint(tmp_path: Path) -> None:
     with pytest.raises(VaultError) as exc:
         _backend(path, pw=None).get("K")
     assert "WEFT_VAULT_PASSPHRASE" in str(exc.value)
+
 
 def test_cache_invalidated_by_external_write(tmp_path: Path) -> None:
     """另一个进程/实例写过文件后，同一实例要能看到新值（热生效的基础）。"""
@@ -46,6 +56,7 @@ def test_cache_invalidated_by_external_write(tmp_path: Path) -> None:
     # 模拟另一个进程写入
     _backend(path).set("K2", "v2")
     assert first.get("K2") == "v2"
+
 
 def test_passphrase_is_resolved_lazily(tmp_path: Path) -> None:
     """密码来源是 callable：解密前才取，所以换了环境变量后新实例立刻生效。"""
@@ -58,6 +69,7 @@ def test_passphrase_is_resolved_lazily(tmp_path: Path) -> None:
     holder["pw"] = PASS
     assert lazy.get("K") == "v"
 
+
 def test_plain_mode_is_base64_json(tmp_path: Path) -> None:
     """enc=none 只是 base64（一层），任何人 base64 -d 就能看到 —— 这是"显式降级"的定义。"""
     path = tmp_path / "vault.json"
@@ -67,6 +79,7 @@ def test_plain_mode_is_base64_json(tmp_path: Path) -> None:
     decoded = json.loads(base64.b64decode(envelope["data"]))
     assert decoded["K"] == "secret-value"
 
+
 def test_legacy_v1_file_reports_migration(tmp_path: Path) -> None:
     """读到旧版 DPAPI 文件时给出可执行的迁移提示，而不是含糊的解析错误。"""
     path = tmp_path / "vault.json"
@@ -75,9 +88,11 @@ def test_legacy_v1_file_reports_migration(tmp_path: Path) -> None:
         _backend(path).get("K")
     assert "reencrypt" in str(exc.value)
 
+
 def test_unknown_enc_rejected(tmp_path: Path) -> None:
     with pytest.raises(VaultError):
         FileBackend(tmp_path / "v.json", enc="rot13")
+
 
 def test_resolve_reports_source_without_value(tmp_path: Path) -> None:
     vault = Vault([_backend(tmp_path / "vault.json")])
@@ -89,6 +104,7 @@ def test_resolve_reports_source_without_value(tmp_path: Path) -> None:
     missing = vault.resolve("ABSENT")
     assert missing.present is False
     assert missing.backend is None
+
 
 def test_from_config_uses_vault_section(tmp_path: Path) -> None:
     cfg = HaiqConfig(
@@ -104,6 +120,7 @@ def test_from_config_uses_vault_section(tmp_path: Path) -> None:
     assert (tmp_path / "secrets" / "vault.json").is_file()
     assert Vault.from_config(cfg).get("K") == "v"
 
+
 def test_from_config_honours_dir_override(tmp_path: Path) -> None:
     cfg = HaiqConfig(
         data_dir=tmp_path / "data",
@@ -114,6 +131,7 @@ def test_from_config_honours_dir_override(tmp_path: Path) -> None:
     Vault.from_config(cfg).set("K", "v")
     assert (tmp_path / "elsewhere" / "vault.json").is_file()
     assert not (tmp_path / "secrets" / "vault.json").exists()
+
 
 def test_write_is_independent_of_other_backends(tmp_path: Path) -> None:
     """env 只在读时优先；写永远落到 file。"""

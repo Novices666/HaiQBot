@@ -1,19 +1,25 @@
 """退避计算：指数增长 + 上限封顶。"""
+
 from __future__ import annotations
+
 from haiqbot_local_chat.config import ChatCfg
 from haiqbot_local_chat.providers.openai_compat import MAX_BACKOFF_SECONDS, backoff_delay
+
 
 def test_exponential_growth() -> None:
     assert backoff_delay(1.0, 0) == 1.0
     assert backoff_delay(1.0, 1) == 2.0
 
+
 def test_capped() -> None:
     assert backoff_delay(1.0, 2) == MAX_BACKOFF_SECONDS
     assert backoff_delay(1.0, 10) == MAX_BACKOFF_SECONDS
 
+
 def test_zero_base_disables_wait() -> None:
     assert backoff_delay(0.0, 5) == 0.0
     assert backoff_delay(-1.0, 0) == 0.0
+
 
 def test_default_retries_policy() -> None:
     cfg = ChatCfg()

@@ -7,19 +7,25 @@
 
 这些全在这里消化掉。
 """
+
 from __future__ import annotations
+
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
 from .channel import ChannelId
 from .segment import Segment, segments_to_text
+
 if TYPE_CHECKING:
     from haiqbot.adapters.base import Adapter
+
 
 @dataclass(frozen=True, slots=True)
 class PlatformCapabilities:
     """某个平台**在能力上的**事实。插件据此决定要不要降级。"""
+
     image: bool = True
     markdown: bool = False
     button: bool = False
@@ -35,8 +41,10 @@ class PlatformCapabilities:
     text_limit: int = 4000
     # 被动回复窗口剩余秒数；None 表示没有窗口限制
     window_ttl: float | None = None
+
     def supports(self, name: str) -> bool:
         return bool(getattr(self, name, False))
+
 
 @dataclass(frozen=True, slots=True)
 class ImageRef:
@@ -45,6 +53,7 @@ class ImageRef:
     `url` 是干净的中转地址（无签名参数）；`path` 是本地落地文件，
     OneBot 这类支持内嵌的协议可以直接读字节发出去，完全不依赖公网。
     """
+
     media_id: str
     url: str
     width: int | None = None
@@ -52,8 +61,10 @@ class ImageRef:
     mime: str = "image/png"
     path: Path | None = None
 
+
 class Reply:
     """一次事件对应一个 Reply，生命周期跟随处理链。"""
+
     def __init__(
         self,
         adapter: Adapter,
@@ -71,24 +82,30 @@ class Reply:
         self.deadline = deadline
         self.plugin_id = plugin_id
         self._seq = 0
+
     # -- 状态查询 --------------------------------------------------------- #
     def remaining(self) -> float | None:
         """被动回复窗口剩余秒数；None 表示无限制。"""
         if self.deadline is None:
             return None
         return self.deadline - time.time()
+
     def expired(self) -> bool:
         return (rem := self.remaining()) is not None and rem <= 0
+
     def almost_expired(self, margin: float = 30.0) -> bool:
         """留给生图这类耗时操作的安全余量判断。"""
         rem = self.remaining()
         return rem is not None and rem < margin
+
     def supports(self, name: str) -> bool:
         return self.capabilities.supports(name)
+
     # -- 发送 ------------------------------------------------------------- #
     def _next_seq(self) -> int | None:
         self._seq += 1
         return self._seq
+
     async def _send(self, segments: list[Segment]) -> str | None:
         if self.expired():
             return None
@@ -99,11 +116,14 @@ class Reply:
             seq=self._next_seq(),
             plugin_id=self.plugin_id,
         )
+
     async def text(self, content: str) -> str | None:
         return await self._send([Segment.text(content)])
+
     async def ack(self, content: str) -> str | None:
         """「排队中」这类首响。语义上等同于 text，但语义清晰、便于审计。"""
         return await self.text(content)
+
     async def image(self, ref: ImageRef | str) -> str | None:
         """发图。平台不支持图片时自动降级成链接，再不行降级成文本提示。"""
         url = ref.url if isinstance(ref, ImageRef) else ref
@@ -116,8 +136,10 @@ class Reply:
         if self.capabilities.image_by_url:
             return await self._send([Segment.image(url=url)])
         return await self.text(f"图片已生成：{url}")
+
     async def segments(self, segments: list[Segment]) -> str | None:
         return await self._send(segments)
+
     async def markdown(self, content: str, *, keyboard: list[dict] | None = None) -> str | None:
         """markdown 正文，可选附带按钮行。
 
@@ -130,14 +152,17 @@ class Reply:
         if keyboard and self.capabilities.button:
             segments.append(Segment.keyboard(keyboard))
         return await self._send(segments)
+
     async def record(self, url: str | None = None, *, path: str | None = None) -> str | None:
         if not self.capabilities.record:
             return await self.text("[语音]（当前平台不支持发送语音）")
         return await self._send([Segment.record(url, path=path)])
+
     async def video(self, url: str | None = None, *, path: str | None = None) -> str | None:
         if not self.capabilities.video:
             return await self.text("[视频]（当前平台不支持发送视频）")
         return await self._send([Segment.video(url, path=path)])
+
     async def forward(self, nodes: list[Any]) -> str | None:
         """合并转发。`nodes` 是 `ForwardNode` 列表；平台不支持就退化成逐条文本。"""
         if not self.capabilities.forward:
@@ -148,8 +173,10 @@ class Reply:
             ]
             return await self.text("\n".join(lines) or "[合并转发]")
         return await self._send([Segment.forward(nodes)])
+
     def __repr__(self) -> str:
         return f"<Reply {self.channel} seq={self._seq}>"
+
     # 防止插件误把 Reply 当容器塞东西
     __slots__ = (
         "adapter",

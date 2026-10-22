@@ -1,7 +1,11 @@
 """凭据槽位：推导规则、句柄行为、CLI 的槽位名解析。"""
+
 from __future__ import annotations
+
 from pathlib import Path
+
 import pytest
+
 from haiqbot.config import HaiqConfig
 from haiqbot.core.errors import CapabilityDenied, CapabilityUnavailable
 from haiqbot.kernel.plugin import (
@@ -13,18 +17,22 @@ from haiqbot.kernel.plugin import (
 )
 from haiqbot.kernel.vault import PlainFileBackend, Resolved, Vault
 
+
 def _vault(tmp_path: Path, **items: str) -> Vault:
     vault = Vault([PlainFileBackend(tmp_path / "v.json")])
     for key, value in items.items():
         vault.set(key, value)
     return vault
 
+
 def _handle(slot: SecretSlot, vault: object, *, cfg: dict | None = None) -> SecretHandle:
     return SecretHandle("painter", "api_key", slot, cfg or {}, vault)
+
 
 # --------------------------------------------------------------------------- #
 # 推导
 # --------------------------------------------------------------------------- #
+
 
 def test_ref_derivation_order() -> None:
     slot = SecretSlot(label="L")
@@ -35,42 +43,53 @@ def test_ref_derivation_order() -> None:
     cfg = {"api_key_ref": "SHARED"}
     assert resolve_secret_ref("painter", "api_key", SecretSlot(label="L", ref="OLD"), cfg) == "SHARED"
 
+
 def test_override_ignores_empty_string() -> None:
     cfg = {"api_key_ref": ""}
     assert resolve_secret_ref("painter", "api_key", SecretSlot(label="L"), cfg) == "haiqbot.painter.api_key"
+
 
 # --------------------------------------------------------------------------- #
 # 句柄
 # --------------------------------------------------------------------------- #
 
+
 def test_headers_default_bearer(tmp_path: Path) -> None:
     h = _handle(SecretSlot(label="L", ref="K"), _vault(tmp_path, K="sk-123"))
     assert h.headers() == {"Authorization": "Bearer sk-123"}
+
 
 def test_headers_custom_header_without_scheme(tmp_path: Path) -> None:
     h = _handle(SecretSlot(label="L", ref="K"), _vault(tmp_path, K="sk-123"))
     assert h.headers(header="X-API-Key", scheme="") == {"X-API-Key": "sk-123"}
 
+
 def test_query_param(tmp_path: Path) -> None:
     h = _handle(SecretSlot(label="L", ref="K"), _vault(tmp_path, K="sk-123"))
     assert h.query("key") == {"key": "sk-123"}
+
 
 def test_bytes_and_json(tmp_path: Path) -> None:
     vault = _vault(tmp_path, B="hello", J='{"a": 1}')
     assert _handle(SecretSlot(label="L", ref="B"), vault).bytes() == b"hello"
     assert _handle(SecretSlot(label="L", ref="J"), vault).json() == {"a": 1}
 
+
 def test_is_set_never_fetches_plaintext() -> None:
     class FakeVault:
         def resolve(self, key: str) -> Resolved:
             return Resolved(key=key, backend="file", present=True)
+
         def get(self, key: str) -> str:  # pragma: no cover - 不该被调用
             raise AssertionError("is_set 不该取明文")
+
     h = _handle(SecretSlot(label="L", ref="K"), FakeVault())
     assert h.is_set() is True
 
+
 def test_is_set_false_when_unavailable() -> None:
     assert _handle(SecretSlot(label="L", ref="K"), None).is_set() is False
+
 
 def test_text_is_wrapped_and_hides_value(tmp_path: Path) -> None:
     h = _handle(SecretSlot(label="生图 API Key", ref="K"), _vault(tmp_path, K="sk-123"))
@@ -83,11 +102,13 @@ def test_text_is_wrapped_and_hides_value(tmp_path: Path) -> None:
     assert "sk-123" not in f"{value}"
     assert value.label == "生图 API Key"
 
+
 def test_require_raises_with_label_not_physical_ref() -> None:
     h = _handle(SecretSlot(label="生图 API Key", ref="MISSING_REF"), None)
     with pytest.raises(CapabilityUnavailable) as exc:
         h.require()
     assert "生图 API Key" in str(exc.value)
+
 
 def test_physical_ref_exposed_for_diagnostics(tmp_path: Path) -> None:
     h = _handle(SecretSlot(label="L", ref="K"), _vault(tmp_path, K="v"))
@@ -95,14 +116,17 @@ def test_physical_ref_exposed_for_diagnostics(tmp_path: Path) -> None:
     assert h.label == "L"
     assert h.required is True
 
+
 # --------------------------------------------------------------------------- #
 # ProviderContext.slot：未声明即越权
 # --------------------------------------------------------------------------- #
+
 
 def test_provider_context_rejects_undeclared_slot(tmp_path: Path) -> None:
     pctx = ProviderContext(plugin_id="painter", config={})
     with pytest.raises(CapabilityDenied):
         pctx.slot("api_key")
+
 
 def test_provider_context_returns_declared_slot(tmp_path: Path) -> None:
     handle = _handle(SecretSlot(label="L", ref="K"), _vault(tmp_path, K="v"))
@@ -110,28 +134,35 @@ def test_provider_context_returns_declared_slot(tmp_path: Path) -> None:
     pctx.slots["api_key"] = handle
     assert pctx.slot("api_key") is handle
 
+
 # --------------------------------------------------------------------------- #
 # CLI：槽位名 -> 物理键名
 # --------------------------------------------------------------------------- #
 
+
 def test_slot_index_covers_shipped_plugins() -> None:
     from haiqbot.cli import _slot_index
+
     index = _slot_index()
     assert "painter.api_key" in index
     assert "chat.api_key" in index
     assert index["painter.api_key"]["slot"].ref == "WEFT_IMAGE_API_KEY"
     assert index["chat.api_key"]["slot"].ref == "WEFT_CHAT_API_KEY"
 
+
 def test_resolve_target_accepts_slot_and_raw_key(tmp_path: Path) -> None:
     from haiqbot.cli import _resolve_target
+
     cfg = HaiqConfig(data_dir=tmp_path / "d", db_path=tmp_path / "d" / "w.db")
     physical, shown = _resolve_target(cfg, "painter.api_key")
     assert physical == "WEFT_IMAGE_API_KEY"
     assert shown == "painter.api_key"
     assert _resolve_target(cfg, "RAW_KEY") == ("RAW_KEY", "RAW_KEY")
 
+
 def test_resolve_target_honours_override(tmp_path: Path) -> None:
     from haiqbot.cli import _resolve_target
+
     cfg = HaiqConfig(
         data_dir=tmp_path / "d",
         db_path=tmp_path / "d" / "w.db",

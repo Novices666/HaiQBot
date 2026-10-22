@@ -1,13 +1,17 @@
 """运行时依赖容器 —— 内核各子系统在这里汇合。"""
+
 from __future__ import annotations
+
 import time
 from dataclasses import dataclass, field
 from typing import Any
+
 from haiqbot.config import HaiqConfig
 from haiqbot.kernel.bus import Bus
 from haiqbot.kernel.governance import AuditLog, Idempotency, QuotaService, RoleResolver
 from haiqbot.kernel.store import Store
 from haiqbot.kernel.vault import Vault
+
 
 @dataclass
 class Runtime:
@@ -33,11 +37,13 @@ class Runtime:
     provider_owner: dict[str, str] = field(default_factory=dict)
     # 服务契约：name -> ServiceSpec（提供方声明，消费方核对）
     service_specs: dict[str, Any] = field(default_factory=dict)
+
     def provide(self, capability: str, service: Any, owner: str, spec: Any = None) -> None:
         self.providers[capability] = service
         self.provider_owner[capability] = owner
         if spec is not None:
             self.service_specs[capability] = spec
+
     def withdraw(self, owner: str) -> list[str]:
         """撤掉某个插件提供的全部能力，返回被撤掉的能力名。"""
         removed = [cap for cap, who in self.provider_owner.items() if who == owner]
@@ -46,20 +52,24 @@ class Runtime:
             self.provider_owner.pop(cap, None)
             self.service_specs.pop(cap, None)
         return removed
+
     def get_service(self, capability: str) -> Any:
         """给能力句柄用的惰性解析器 —— 调用时才查，所以支持热插拔。"""
         return self.providers.get(capability)
+
     # -- 运行期计数器（面板「概览」页用） --------------------------------- #
     started_at: float = field(default_factory=time.time)
     last_event_ts: float | None = None
     events_total: int = 0
     handled_total: int = 0
+
     def note_event(self, *, handled: bool) -> None:
         """每处理完一条事件调一次。只做自增，不落库 —— 面板要的是"现在"。"""
         self.events_total += 1
         if handled:
             self.handled_total += 1
         self.last_event_ts = time.time()
+
     def health(self) -> dict[str, Any]:
         """连接健康度汇总。`connected` 为 None 表示该平台没有可观测的连接态。"""
         platforms: dict[str, Any] = {}
@@ -78,6 +88,7 @@ class Runtime:
             "handled_total": self.handled_total,
             "platforms": platforms,
         }
+
     def _degraded(self) -> bool:
         """任一已启用平台明确掉线即视为降级（未知态不算）。"""
         for adapter in self.adapters.values():
@@ -87,6 +98,7 @@ class Runtime:
             except Exception:  # noqa: BLE001
                 continue
         return False
+
     def advertise(self) -> dict[str, Any]:
         """给仪表盘/CLI 用的运行时快照。注意：不含任何凭据。"""
         return {

@@ -8,14 +8,18 @@
 真正的管理动作（启停/重载插件）走 CLI：`haiqbot plugin reload <id>`。
 这样群里的管理员权限被攻破也无法动态加载代码。
 """
+
 from __future__ import annotations
+
 from haiqbot.plugin_api import Context, Plugin, Role, on_command
+
 
 class Admin(Plugin):
     id = "admin"
     name = "管理"
     description = "只读的运行时状态查询"
     capabilities: list[str] = []
+
     @on_command("plugins", aliases=["插件"], usage="plugins", min_role=Role.ADMIN, priority=90)
     async def list_plugins(self, ctx: Context) -> None:
         if not ctx.introspect:
@@ -32,6 +36,7 @@ class Admin(Plugin):
                 marks.append("❌")
             lines.append(f"  {''.join(marks)} {row['id']}  {row.get('version', '')}")
         await ctx.reply.text("\n".join(lines))
+
     @on_command("status", aliases=["状态"], usage="status", min_role=Role.ADMIN, priority=90)
     async def status(self, ctx: Context) -> None:
         caps = ctx.reply.capabilities
@@ -45,6 +50,7 @@ class Admin(Plugin):
             f"  已加载插件：{len(ctx.introspect.plugins())}",
         ]
         await ctx.reply.text("\n".join(lines))
+
 
 def _fmt_remaining(ctx: Context) -> str:
     rem = ctx.reply.remaining() if ctx.reply else None

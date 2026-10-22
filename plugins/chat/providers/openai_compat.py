@@ -2,12 +2,17 @@
 
 密钥只从 vault 取，取完立刻进脱敏名单；任何异常信息都不含密钥。
 """
+
 from __future__ import annotations
+
 import asyncio
 from collections.abc import Callable
 from typing import Any
+
 from haiqbot.plugin_api import ProviderError, get_logger
+
 from ..config import ChatCfg
+
 log = get_logger(__name__)
 
 # 网关的瞬时故障，值得重试
@@ -16,14 +21,17 @@ RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 # 单次退避上限；503 常成簇出现（实测 3 连），但重试本身只要 0.3s，等待不必太长
 MAX_BACKOFF_SECONDS = 4.0
 
+
 def backoff_delay(base: float, attempt: int) -> float:
     """第 attempt 次失败后应等多久（attempt 从 0 开始）。"""
     if base <= 0:
         return 0.0
     return min(base * (2**attempt), MAX_BACKOFF_SECONDS)
 
+
 class OpenAICompatChatProvider:
     name = "openai_compat"
+
     def __init__(
         self,
         auth: Callable[[], dict[str, str]],
@@ -36,16 +44,20 @@ class OpenAICompatChatProvider:
         self.cfg = cfg
         self._client = client
         self.timeout = timeout if timeout is not None else cfg.timeout_seconds
+
     def _http(self) -> Any:
         if self._client is not None:
             return self._client
         import httpx
+
         self._client = httpx.AsyncClient(timeout=self.timeout, follow_redirects=True)
         return self._client
+
     async def aclose(self) -> None:
         if self._client is not None and hasattr(self._client, "aclose"):
             await self._client.aclose()
             self._client = None
+
     async def complete(
         self,
         messages: list[dict[str, str]],
@@ -89,6 +101,7 @@ class OpenAICompatChatProvider:
                 raise ProviderError("对话接口返回了非 JSON 响应") from exc
             return self._extract(body)
         raise ProviderError(f"对话接口多次重试仍失败（最后一次 {last_status}）")
+
     @staticmethod
     def _extract(body: dict[str, Any]) -> str:
         choices = body.get("choices") or []

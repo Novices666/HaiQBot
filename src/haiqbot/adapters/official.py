@@ -10,11 +10,14 @@
 - 富媒体必须先 `/files` 上传拿 `file_info`，再 `msg_type=7` 发出去
 - `msg_type=7` 时 `content` 必须填一个空格（官方已知问题）
 """
+
 from __future__ import annotations
+
 import asyncio
 import time
 from collections.abc import Callable
 from typing import Any
+
 from haiqbot.adapters.base import Adapter, PushFn
 from haiqbot.core.channel import Actor, ChannelId, ChannelKind, Role
 from haiqbot.core.errors import AdapterError
@@ -22,6 +25,7 @@ from haiqbot.core.event import EventKind, MessageEvent
 from haiqbot.core.reply import PlatformCapabilities
 from haiqbot.core.segment import Segment, SegmentKind
 from haiqbot.kernel.log import get_logger
+
 log = get_logger(__name__)
 
 MSG_TEXT = 0
@@ -38,8 +42,10 @@ _FILE_TYPE = {
     SegmentKind.RECORD: FILE_TYPE_AUDIO,
 }
 
+
 class OfficialClient:
     """官方 OpenAPI 的最小客户端。所有请求都带 `Authorization: QQBot <token>`。"""
+
     def __init__(
         self,
         *,
@@ -57,16 +63,20 @@ class OfficialClient:
         self._token: str | None = None
         self._expire_at: float = 0.0
         self._lock = asyncio.Lock()
+
     def _http(self) -> Any:
         if self._client is not None:
             return self._client
         import httpx
+
         self._client = httpx.AsyncClient(timeout=20.0)
         return self._client
+
     async def aclose(self) -> None:
         if self._client is not None and hasattr(self._client, "aclose"):
             await self._client.aclose()
             self._client = None
+
     # -- token ------------------------------------------------------------ #
     async def token(self, *, force: bool = False) -> str:
         async with self._lock:
@@ -89,25 +99,31 @@ class OfficialClient:
             self._expire_at = time.time() + max(30.0, expires - 60.0)
             log.info("official_token_refreshed", expires_in=expires)
             return token
+
     async def _headers(self) -> dict[str, str]:
         return {"Authorization": f"QQBot {await self.token()}", "Content-Type": "application/json"}
+
     # -- 发送 ------------------------------------------------------------- #
     async def post_group_message(self, group_openid: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{self.api_base}/v2/groups/{group_openid}/messages"
         return await self._post(url, payload)
+
     async def post_c2c_message(self, user_openid: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{self.api_base}/v2/users/{user_openid}/messages"
         return await self._post(url, payload)
+
     async def post_group_file(
         self, group_openid: str, media_url: str, *, file_type: int = 1, srv_send_msg: bool = False
     ) -> dict[str, Any]:
         url = f"{self.api_base}/v2/groups/{group_openid}/files"
         return await self._post(url, {"file_type": file_type, "url": media_url, "srv_send_msg": srv_send_msg})
+
     async def post_c2c_file(
         self, user_openid: str, media_url: str, *, file_type: int = 1, srv_send_msg: bool = False
     ) -> dict[str, Any]:
         url = f"{self.api_base}/v2/users/{user_openid}/files"
         return await self._post(url, {"file_type": file_type, "url": media_url, "srv_send_msg": srv_send_msg})
+
     async def _post(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         resp = await self._http().post(url, json=payload, headers=await self._headers())
         if resp.status_code >= 400:
@@ -121,6 +137,7 @@ class OfficialClient:
             return resp.json()
         except Exception:  # noqa: BLE001
             return {}
+
 
 class OfficialAdapter(Adapter):
     platform = "official"
@@ -136,6 +153,7 @@ class OfficialAdapter(Adapter):
         video=True,
         window_ttl=300.0,
     )
+
     def __init__(
         self,
         *,
@@ -148,6 +166,7 @@ class OfficialAdapter(Adapter):
         self.intents = intents
         self._botpy_client: Any = None
         self._task: asyncio.Task[None] | None = None
+
     # -- 生命周期 --------------------------------------------------------- #
     async def start(self) -> None:
         try:
@@ -156,22 +175,29 @@ class OfficialAdapter(Adapter):
             raise AdapterError("官方平台适配需要 qq-botpy：`uv sync --extra official` 后再启动") from exc
         self._task = asyncio.create_task(self._run_botpy(), name="haiqbot:official-ws")
         log.info("official_adapter_started", intents=self.intents)
+
     async def stop(self) -> None:
         if self._task:
             self._task.cancel()
             self._task = None
         await self.client.aclose()
+
     async def _run_botpy(self) -> None:
         import botpy
+
         adapter = self
+
         class _Client(botpy.Client):
             async def on_ready(self) -> None:  # noqa: D401
                 adapter.bot_id = getattr(getattr(self, "robot", None), "id", None)
                 log.info("official_ready", bot=getattr(self, "robot", None) is not None)
+
             async def on_group_at_message_create(self, message: Any) -> None:
                 await adapter._on_group(message)
+
             async def on_c2c_message_create(self, message: Any) -> None:
                 await adapter._on_c2c(message)
+
         self._botpy_client = _Client(intents=botpy.Intents(public_messages=True))
         try:
             await self._botpy_client.start(appid=self.client.app_id, secret=self.client._secret_provider())
@@ -179,6 +205,7 @@ class OfficialAdapter(Adapter):
             raise
         except Exception:  # noqa: BLE001
             log.exception("official_ws_error")
+
     # -- 事件归一化 ------------------------------------------------------- #
     async def _on_group(self, message: Any) -> None:
         await self._emit(
@@ -194,6 +221,7 @@ class OfficialAdapter(Adapter):
                 raw={"event": "GROUP_AT_MESSAGE_CREATE"},
             )
         )
+
     async def _on_c2c(self, message: Any) -> None:
         await self._emit(
             MessageEvent(
@@ -210,6 +238,7 @@ class OfficialAdapter(Adapter):
                 raw={"event": "C2C_MESSAGE_CREATE"},
             )
         )
+
     # -- 发送 ------------------------------------------------------------- #
     async def send_message(
         self,
@@ -226,6 +255,7 @@ class OfficialAdapter(Adapter):
             lambda: self._raw_send(channel, segments, reply_to=reply_to, seq=seq, plugin_id=plugin_id),
             plugin_id=plugin_id,
         )
+
     async def _raw_send(
         self,
         channel: ChannelId,
@@ -284,6 +314,7 @@ class OfficialAdapter(Adapter):
             if seq is not None:
                 seq += 1
         return message_id
+
     async def _send_payload(
         self,
         channel: ChannelId,
@@ -304,6 +335,7 @@ class OfficialAdapter(Adapter):
         else:
             raise AdapterError(f"官方适配器不支持该频道类型：{channel.kind}")
         return data.get("id")
+
     async def _send_media(
         self,
         channel: ChannelId,
