@@ -6,11 +6,11 @@
 
 from __future__ import annotations
 
-import tomllib
 from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from . import toml_io
 from .log import get_logger
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -51,10 +51,14 @@ def local_plugin_dirs(config: Any) -> dict[str, Path]:
             if not manifest_file.is_file():
                 continue
             try:
-                with manifest_file.open("rb") as fh:
-                    data = tomllib.load(fh)
-            except Exception:  # noqa: BLE001
-                log.warning("plugin_toml_invalid", path=str(manifest_file))
+                data = toml_io.load_file(manifest_file)
+            except Exception as exc:  # noqa: BLE001 - 单个插件坏了不该拖垮发现流程
+                log.warning(
+                    "plugin_toml_invalid",
+                    path=str(manifest_file),
+                    error=type(exc).__name__,
+                    hint="plugin.toml 必须是合法 UTF-8 TOML（BOM 已容忍，语法错需自己修）",
+                )
                 continue
             out[str(data.get("id") or child.name)] = child
     return out

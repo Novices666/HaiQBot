@@ -14,6 +14,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from haiqbot.core.errors import ConfigError
+
 DEFAULT_CONFIG_FILE = "haiq.toml"
 
 
@@ -224,13 +226,60 @@ def _rewrite_legacy_sections(path: Path, moved: dict[str, dict[str, Any]]) -> No
     path.write_text(text, encoding="utf-8")
 
 
+def _read_toml(path: Path) -> dict[str, Any]:
+    """读 TOML：容忍 BOM（见 kernel.toml_io），并把解析失败翻成人话。
+
+    裸的 `TOMLDecodeError` 对新用户毫无帮助，尤其「文件带 BOM」这种在 Windows 上
+    极易发生、又完全看不出异常的情况。
+    """
+    from haiqbot.kernel.toml_io import has_bom, loads
+
+    try:
+        return loads(path.read_bytes())
+    except tomllib.TOMLDecodeError as exc:
+        hint = "文件里混入了非法字符，或手动改动时写坏了某个值。"
+        if has_bom(path):
+            hint = "文件带 UTF-8 BOM（BOM 已自动剥离，说明另有语法错误）。"
+        raise ConfigError(
+            f"{path} 不是合法的 TOML：{exc}\n  可能原因：{hint}\n  "
+            f"想从零开始：删掉 {path} 后重新执行 `haiq init`。"
+        ) from exc
+    except UnicodeDecodeError as exc:
+        raise ConfigError(
+            f"{path} 不是 UTF-8 编码（{exc.reason}）。\n  请用支持 UTF-8 的编辑器另存为「UTF-8」后重试。"
+        ) from exc
+
+
+def _warn_misplaced_fields(raw: dict[str, Any], path: Path) -> None:
+    """顶层字段被写进某个 `[section]` 时告警。
+
+    TOML 里 `plugin_dirs = [...]` 一旦写在任何 `[section]` 之后，就会变成**段内键**，
+    被 pydantic 静默忽略。实测踩过：本地目录插件整套体系无声失效，而报错为零。
+    """
+    names = set(HaiqConfig.model_fields)
+    for section, block in raw.items():
+        if section == "plugins" or not isinstance(block, dict):
+            continue
+        for key in block:
+            if key in names:
+                from haiqbot.kernel.log import get_logger
+
+                get_logger(__name__).warning(
+                    "config_field_misplaced",
+                    field=key,
+                    section=section,
+                    path=str(path),
+                    hint=f"`{key}` 是顶层字段，必须写在第一个 [section] 之前",
+                )
+
+
 def load_config(path: str | Path | None = None) -> HaiqConfig:
     """从 haiq.toml 加载配置；文件不存在时返回全默认值。"""
     cfg_path = Path(path) if path else Path(DEFAULT_CONFIG_FILE)
     raw: dict[str, Any] = {}
     if cfg_path.is_file():
-        with cfg_path.open("rb") as fh:
-            raw = tomllib.load(fh)
+        raw = _read_toml(cfg_path)
+        _warn_misplaced_fields(raw, cfg_path)
 
     # [plugins.<id>] 与顶层 plugins_enabled 分开存放
     plugins_table = raw.pop("plugins", {}) or {}

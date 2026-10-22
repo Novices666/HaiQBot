@@ -58,3 +58,11 @@ class ContractError(HaiqError):
 
 class VaultMissing(HaiqError):
     """缺少必要凭据。"""
+
+
+class ConfigError(HaiqError):
+    """配置文件读不出来：编码不对、TOML 语法坏、字段放错位置等。
+
+    CLI 捕获后只打印一条人话，不甩 traceback —— Windows 上「另存为带 BOM 的
+    UTF-8」是最常见的一类，用户看不懂 `Invalid statement`。
+    """

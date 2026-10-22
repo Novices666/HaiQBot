@@ -9,8 +9,17 @@ description = "haiqbot — 协议无关的 QQ Bot 通用框架 + 插件生态"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "haiqbot" }]
+authors = [{ name = "Novices666" }]
 keywords = ["qqbot", "onebot", "bot", "framework", "plugin"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Chat",
+    "Typing :: Typed",
+]
 
 dependencies = [
     "pydantic>=2.7",
@@ -22,6 +31,13 @@ dependencies = [
     "websockets>=12.0",
     "cryptography>=50.0.2",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Novices666/HaiQBot"
+Repository = "https://github.com/Novices666/HaiQBot"
+Issues = "https://github.com/Novices666/HaiQBot/issues"
+Documentation = "https://github.com/Novices666/HaiQBot/blob/main/docs/ARCHITECTURE.md"
+Changelog = "https://github.com/Novices666/HaiQBot/releases"
 
 [project.optional-dependencies]
 # 官方 QQ 平台适配所需的 SDK，按需安装：uv sync --extra official

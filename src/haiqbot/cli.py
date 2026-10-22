@@ -19,6 +19,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from haiqbot.config import DEFAULT_CONFIG_FILE, dump_default_config, load_config
+from haiqbot.core.errors import ConfigError
 from haiqbot.kernel.log import configure_logging, get_logger
 
 log = get_logger(__name__)
@@ -970,7 +971,12 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
 
-    return int(args.func(args) or 0)
+    try:
+        return int(args.func(args) or 0)
+    except ConfigError as exc:
+        # 配置坏了只该看到一句人话，不该是 traceback
+        print(f"× 配置有问题：{exc}")
+        return 2
 
 
 if __name__ == "__main__":  # pragma: no cover
