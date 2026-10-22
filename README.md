@@ -5,7 +5,6 @@
 [![CI](https://github.com/Novices666/HaiQBot/actions/workflows/ci.yml/badge.svg)](https://github.com/Novices666/HaiQBot/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776ab)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-534%20passed-brightgreen)
 
 > 插件永远拿不到密钥，也永远不需要知道自己跑在哪个平台。
 
