@@ -47,14 +47,6 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.5", "pre-commit>=3.7"]
 [project.scripts]
 haiq = "haiqbot.cli:main"
 
-[project.entry-points."haiqbot.plugins"]
-echo = "haiqbot.builtin_plugins.echo:Echo"
-help = "haiqbot.builtin_plugins.help:Help"
-admin = "haiqbot.builtin_plugins.admin:Admin"
-painter = "haiqbot.builtin_plugins.painter:Painter"
-chat = "haiqbot.builtin_plugins.chat:Chat"
-guard = "haiqbot.builtin_plugins.guard:Guard"
-
 [tool.hatch.build.targets.wheel]
 packages = ["src/haiqbot"]
 

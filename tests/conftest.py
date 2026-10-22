@@ -58,3 +58,29 @@ async def runtime(cfg: HaiqConfig, store: Store, vault: Vault) -> Runtime:
         idempotency=Idempotency(store),
         audit=AuditLog(store),
     )
+
+
+# ---------------------------------------------------------------- 插件预加载
+# 插件已经搬出内核（不再是 pip entry point），测试要像运行时那样按「本地目录」
+# 协议把它们 import 成 `haiqbot_local_<pid>`，否则顶层的 import 语句会失败。
+REPO_ROOT = Path(__file__).resolve().parent.parent
+PLUGINS_DIR = REPO_ROOT / "plugins"
+
+
+def _preload_local_plugins() -> list[str]:
+    from haiqbot.kernel.plugin_sources import load_local_module
+
+    loaded: list[str] = []
+    if not PLUGINS_DIR.is_dir():
+        return loaded
+    for child in sorted(PLUGINS_DIR.iterdir()):
+        if not child.is_dir():
+            continue
+        if not (child / "plugin.toml").is_file() or not (child / "__init__.py").is_file():
+            continue
+        load_local_module(child.name, child)
+        loaded.append(child.name)
+    return loaded
+
+
+PRELOADED_PLUGINS = _preload_local_plugins()

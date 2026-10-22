@@ -8,13 +8,13 @@ from pathlib import Path
 
 import httpx
 import pytest
+from haiqbot_local_chat.broker import LLMBroker
+from haiqbot_local_chat.config import ChatCfg
+from haiqbot_local_chat.providers.mock import MockChatProvider
+from haiqbot_local_chat.providers.openai_compat import OpenAICompatChatProvider
 
 from haiqbot.adapters.mock import MockAdapter
 from haiqbot.app import App
-from haiqbot.builtin_plugins.chat.broker import LLMBroker
-from haiqbot.builtin_plugins.chat.config import ChatCfg
-from haiqbot.builtin_plugins.chat.providers.mock import MockChatProvider
-from haiqbot.builtin_plugins.chat.providers.openai_compat import OpenAICompatChatProvider
 from haiqbot.config import HaiqConfig, MediaCfg, PolicyCfg, QuotaCfg, WebuiCfg
 from haiqbot.core.channel import Actor, ChannelId, ChannelKind
 from haiqbot.core.event import EventKind, MessageEvent

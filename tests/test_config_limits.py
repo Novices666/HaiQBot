@@ -5,11 +5,11 @@ from __future__ import annotations
 import tomllib
 
 import pytest
+from haiqbot_local_chat.broker import LLMBroker
+from haiqbot_local_chat.providers.mock import MockChatProvider
+from haiqbot_local_painter.broker import ImageBroker
+from haiqbot_local_painter.providers.mock import MockImageProvider
 
-from haiqbot.builtin_plugins.chat.broker import LLMBroker
-from haiqbot.builtin_plugins.chat.providers.mock import MockChatProvider
-from haiqbot.builtin_plugins.painter.broker import ImageBroker
-from haiqbot.builtin_plugins.painter.providers.mock import MockImageProvider
 from haiqbot.config import dump_default_config
 from haiqbot.services.providers.base import ProviderError
 

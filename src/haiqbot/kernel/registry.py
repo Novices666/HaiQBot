@@ -3,14 +3,13 @@
 三种来源：
 1. pip 包的 entry point（`haiqbot.plugins` 组）—— 第三方插件
 2. 本地目录（含 `plugin.toml`）—— 开发中的插件
-3. 随框架分发的内置插件（同样通过 entry point 注册；包名由配置项 builtin_plugins_package 决定）
+3. 随仓库分发的插件（放在 plugin_dirs 里，与第三方插件同一条协议）
 """
 
 from __future__ import annotations
 
 import dataclasses
 import importlib
-import importlib.util
 import inspect
 import sys
 import tomllib
@@ -134,22 +133,7 @@ class Registry:
             found[name] = f"entrypoint:{value}"
         for pid, path in self._local_dirs().items():
             found[pid] = f"local:{path}"
-        for pid, module_name in self._bundled_plugins().items():
-            found.setdefault(pid, f"builtin:{module_name}")
         return found
-
-    def _bundled_plugins(self) -> dict[str, str]:
-        """随框架分发的插件：包名来自配置，不是写死在代码里。"""
-        package = str(getattr(self.runtime.config, "builtin_plugins_package", "") or "")
-        if not package:
-            return {}
-        try:
-            import pkgutil
-
-            module = importlib.import_module(package)
-        except Exception:  # noqa: BLE001
-            return {}
-        return {mod.name: f"{package}.{mod.name}" for mod in pkgutil.iter_modules(module.__path__)}
 
     def _entry_points(self) -> dict[str, str]:
         return plugin_sources.entry_point_map()
@@ -159,42 +143,43 @@ class Registry:
 
     # -- 导入 ------------------------------------------------------------- #
     def _import_target(self, pid: str) -> tuple[Any, str, str | None]:
-        """返回 (module, source, module_name)。"""
+        """返回 (module, source, module_name)。
+
+        entry point 优先，但它可能指向已经被搬走/卸载的模块（例如装过旧版
+        wheel 留下的 dist-info）。这种入口视为失效，**回落本地目录**而不是
+        直接失败 —— 否则一次安装残留就让插件永久起不来。
+        """
         eps = self._entry_points()
         if pid in eps:
-            value = eps[pid]
-            mod_name, _, attr = value.partition(":")
-            module = importlib.import_module(mod_name)
-            if attr:
-                return getattr(module, attr), "entrypoint", mod_name
-            return module, "entrypoint", mod_name
+            mod_name, _, attr = eps[pid].partition(":")
+            try:
+                module = importlib.import_module(mod_name)
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "plugin_entrypoint_stale",
+                    plugin=pid,
+                    target=eps[pid],
+                    error=f"{type(exc).__name__}: {exc}",
+                    hint="entry point 指向的模块导不进来，改用本地目录",
+                )
+            else:
+                target = getattr(module, attr, None) if attr else module
+                if target is not None:
+                    return target, "entrypoint", mod_name
 
         locals_ = self._local_dirs()
         if pid in locals_:
             path = locals_[pid]
-            mod_name = f"haiqbot_local_{pid}"
-            init_file = path / "__init__.py"
-            if not init_file.is_file():
-                raise HaiqError(f"本地插件 {pid} 缺少 __init__.py: {path}")
-            spec = importlib.util.spec_from_file_location(
-                mod_name, init_file, submodule_search_locations=[str(path)]
-            )
-            if spec is None or spec.loader is None:
-                raise HaiqError(f"无法加载本地插件 {pid}")
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[mod_name] = module
-            spec.loader.exec_module(module)
-            return module, "local", mod_name
+            try:
+                module = plugin_sources.load_local_module(pid, path)
+            except Exception as exc:  # noqa: BLE001
+                raise HaiqError(f"本地插件 {pid} 加载失败：{path}（{type(exc).__name__}: {exc}）") from exc
+            return module, "local", f"haiqbot_local_{pid}"
 
-        package = str(getattr(self.runtime.config, "builtin_plugins_package", "") or "")
-        if not package:
-            raise HaiqError(f"插件 {pid} 不是 entry point，且未配置内置插件包名")
-        mod_name = f"{package}.{pid}"
-        try:
-            module = importlib.import_module(mod_name)
-        except ImportError as exc:
-            raise HaiqError(f"找不到插件 {pid}（已尝试 entry point / 本地目录 / 内置）") from exc
-        return module, "builtin", mod_name
+        raise HaiqError(
+            f"找不到插件 {pid}：既不是已安装的 entry point（haiqbot.plugins 组），"
+            f"也不在 plugin_dirs 里。检查 haiq.toml 的 plugin_dirs 与 [plugins] enabled。"
+        )
 
     def _pick_plugin(self, target: Any, pid: str) -> type[Plugin]:
         if inspect.isclass(target) and issubclass(target, Plugin) and target is not Plugin:
@@ -658,7 +643,7 @@ class Registry:
         if self._class_cache is None:
             self._class_cache = {
                 str(getattr(cls, "id", "")): cls
-                for cls in plugin_sources.iter_plugin_classes()
+                for cls in plugin_sources.iter_plugin_classes(self.runtime.config)
                 if getattr(cls, "id", None)
             }
         return self._class_cache

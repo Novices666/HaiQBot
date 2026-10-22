@@ -1,0 +1,9 @@
+# 本地目录插件的清单：内核读它拿元信息，也用它判断「这里面是个插件」。
+# 本文件可以覆盖 __init__.py 里类的 name/version/description/isolation。
+
+id = "help"
+name = "帮助"
+version = "0.1.0"
+description = "列出所有可用命令"
+api_version = 1
+isolation = "inline"

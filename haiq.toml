@@ -4,6 +4,11 @@ data_dir = "data"
 log_level = "INFO"
 log_json = false
 
+# 本地目录插件。必须写在任何 [section] 之前 —— 写在段内会变成段子键，
+# 被静默忽略（表现是插件全部消失、且没有任何报错）。
+# 相对路径按启动时的工作目录解析，所以起服务前先 cd 到项目根。
+plugin_dirs = ["plugins"]
+
 [plugins]
 enabled = ["echo", "help", "admin", "painter", "chat", "guard"]
 

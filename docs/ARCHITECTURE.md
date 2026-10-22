@@ -155,9 +155,9 @@ Windows「Internet 选项 → 局域网设置」里的代理会被 `httpx`（`tr
 | `haiqbot/kernel/config_schema.py` | 配置字段的唯一定义（面板与校验共用） |
 | `haiqbot/kernel/control.py` | 面板写操作：令牌认证 / 字段白名单 / 热更 / 审计 |
 | `haiqbot/kernel/vault.py` | env / DPAPI / keyring / cmd 四后端 |
-| `haiqbot/builtin_plugins/painter/broker.py` | 唯一生图出网口（`image:generate` 的提供者） |
-| `haiqbot/builtin_plugins/chat/broker.py` | 唯一对话出网口（`llm:chat` 的提供者） |
-| `haiqbot/builtin_plugins/<id>/providers/` | 厂商实现（归插件所有） |
+| `plugins/painter/broker.py` | 唯一生图出网口（`image:generate` 的提供者） |
+| `plugins/chat/broker.py` | 唯一对话出网口（`llm:chat` 的提供者） |
+| `plugins/<id>/providers/` | 厂商实现（归插件所有） |
 | `haiqbot/services/providers/base.py` | 通用 provider 类型（`ProviderError` / `ImageProvider`） |
 | `haiqbot/services/media_store.py` | 图片中转与 GC |
 | `haiqbot/app.py` | 装配 + 管线 + 生命周期 |

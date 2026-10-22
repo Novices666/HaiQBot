@@ -90,7 +90,8 @@ def test_plugin_dirs_inside_section_is_reported(tmp_path: Path, monkeypatch) -> 
     )
     cfg = load_config(cfg_path)
 
-    assert cfg.plugin_dirs == []  # 确实被忽略了（这就是需要告警的原因）
+    # 段内写法被丢弃，于是回落到默认值（这正是必须告警的原因：用户以为自己配了）
+    assert [Path(p).as_posix() for p in cfg.plugin_dirs] == ["plugins"]
     assert [e for e, _ in seen] == ["config_field_misplaced"]
     assert seen[0][1]["field"] == "plugin_dirs"
     assert seen[0][1]["section"] == "onebot"

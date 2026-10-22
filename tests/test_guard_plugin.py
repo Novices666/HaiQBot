@@ -6,8 +6,8 @@ from collections.abc import Mapping
 from types import SimpleNamespace
 
 import pytest
+from haiqbot_local_guard import Guard
 
-from haiqbot.builtin_plugins.guard import Guard
 from haiqbot.plugin_api import Role
 
 

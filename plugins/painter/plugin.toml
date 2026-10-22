@@ -1,0 +1,9 @@
+# 本地目录插件的清单：内核读它拿元信息，也用它判断「这里面是个插件」。
+# 本文件可以覆盖 __init__.py 里类的 name/version/description/isolation。
+
+id = "painter"
+name = "生图"
+version = "0.1.0"
+description = "根据提示词生成图片（自带 provider）"
+api_version = 1
+isolation = "inline"

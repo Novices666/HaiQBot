@@ -146,10 +146,10 @@ class HaiqConfig(BaseModel):
     log_json: bool = False
     db_path: Path = Path("data/haiq.db")
 
-    plugins_enabled: list[str] = Field(default_factory=lambda: ["echo", "help", "admin", "painter"])
-    plugin_dirs: list[Path] = Field(default_factory=list)
-    # 随框架分发的插件包名。留空 = 不用内置插件（拆包后改成空即可）。
-    builtin_plugins_package: str = "haiqbot.builtin_plugins"
+    # 内核不认识任何具体插件：默认一个都不启用，由 haiq.toml 显式列出。
+    plugins_enabled: list[str] = Field(default_factory=list)
+    # 本地目录插件（含随仓库分发的 plugins/）。相对路径按进程工作目录解析。
+    plugin_dirs: list[Path] = Field(default_factory=lambda: [Path("plugins")])
     # 每个插件的参数，取自 haiq.toml 的 [plugins.<id>]
     plugin_config: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
@@ -181,7 +181,9 @@ def _env_override(raw: dict[str, Any]) -> dict[str, Any]:
     return raw
 
 
-# 旧版把生图 / 对话配置放在内核顶层段，现在归插件所有
+# 旧版把生图 / 对话配置放在内核顶层段，现在归插件所有。
+# 这是**历史配置迁移映射**，不是内核依赖插件：删掉它只会让老配置静默失效，
+# 所以留着；新增插件不需要在这里登记任何东西。
 _LEGACY_SECTIONS: dict[str, str] = {"image": "painter", "chat": "chat"}
 
 
@@ -357,15 +359,34 @@ def _render_plugin_sections() -> str:
 
 
 def dump_default_config() -> str:
-    """生成 `haiqbot init` 用的 haiq.toml 模板（不含任何密钥）。"""
+    """生成 `haiqbot init` 用的 haiq.toml 模板（不含任何密钥）。
+
+    插件清单**不写死**：按当前环境实际能发现到的插件生成。内核里出现具体插件
+    id 就等于「内核认识插件」，插件一搬走这份模板立刻撒谎。
+    """
+    from .kernel.plugin_sources import default_plugin_dirs, iter_plugin_classes
+
+    try:
+        found = sorted({str(getattr(cls, "id", "") or "") for cls in iter_plugin_classes()} - {""})
+    except Exception:  # noqa: BLE001 - 发现失败就不填，别让 init 崩
+        found = []
+    enabled_literal = "[" + ", ".join(f'"{pid}"' for pid in found) + "]"
+    dirs_literal = "[" + ", ".join(f'"{Path(p).as_posix()}"' for p in default_plugin_dirs()) + "]"
+
     tpl = """# haiqbot 配置 —— 请勿在此文件中写入任何密钥，密钥一律用 `haiq vault set` 管理。
 
 data_dir = "data"
 log_level = "INFO"
 log_json = false
 
+# 本地目录插件。必须写在任何 [section] 之前 —— 写进段内会被静默忽略。
+# 相对路径按启动时的工作目录解析，所以起服务前先 cd 到项目根。
+plugin_dirs = __PLUGIN_DIRS__
+
 [plugins]
-enabled = ["echo", "help", "admin", "painter"]
+# 内核不认识任何具体插件。这份清单是生成配置时**实际发现到的插件**；
+# 若为空，说明当时的工作目录下没有 plugins/ —— 请到项目根再 init，或自行填入 id。
+enabled = __PLUGINS_ENABLED__
 
 # 每个插件的私有参数放在 [plugins.<id>] 下，例如：
 # [plugins.painter]
@@ -436,4 +457,8 @@ access_token_ref = "WEFT_ONEBOT_ACCESS_TOKEN"
 # 图片怎么发：auto（有本地文件就内嵌 base64，无需公网）/ base64 / url
 image_transport = "auto"
 """
-    return tpl.replace("__PLUGIN_SECTIONS__", _render_plugin_sections())
+    return (
+        tpl.replace("__PLUGIN_SECTIONS__", _render_plugin_sections())
+        .replace("__PLUGINS_ENABLED__", enabled_literal)
+        .replace("__PLUGIN_DIRS__", dirs_literal)
+    )

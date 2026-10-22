@@ -7,9 +7,9 @@ from pathlib import Path
 
 import httpx
 import pytest
+from haiqbot_local_chat.config import ChatCfg
+from haiqbot_local_chat.providers.openai_compat import RETRYABLE_STATUS, OpenAICompatChatProvider
 
-from haiqbot.builtin_plugins.chat.config import ChatCfg
-from haiqbot.builtin_plugins.chat.providers.openai_compat import RETRYABLE_STATUS, OpenAICompatChatProvider
 from haiqbot.kernel.vault import PlainFileBackend, Vault
 from haiqbot.services.providers.base import ProviderError
 

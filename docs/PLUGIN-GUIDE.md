@@ -28,7 +28,19 @@ isolation = "inline"
 capabilities = []
 ```
 
-把目录放进 `haiq.toml` 的 `plugin_dirs`，或直接把 `myplugin` 放进 `src/haiqbot/builtin_plugins/`。
+把目录放进 `haiq.toml` 的 `plugin_dirs` 指向的地方（默认是项目根的 `plugins/`）。
+
+**内核里不放插件。** `src/haiqbot/` 下没有任何插件代码；随仓库分发的 6 个插件也在
+`plugins/` 里，和你自己写的位置、加载方式完全一样 —— 所以「写插件」不需要碰内核，
+也不需要重新安装框架。
+
+两个会「静默失效」的坑，踩了不会报错，只会表现为插件全没了：
+
+1. **`plugin_dirs` 必须写在 `haiq.toml` 里任何 `[section]` 之前。** 写进段内会变成该段的
+   子键，被静默忽略。`haiq doctor` 会告警这种情况。
+2. **相对路径按启动时的工作目录解析。** 用 NSSM 服务 / 计划任务 / 从别处启动时很容易
+   指错目录。`haiq doctor` 会打印实际发现到的插件来源（`本地目录 N 个（a,b,c）`），
+   先跑它再排查别的。
 
 ## 触发器
 
@@ -454,7 +466,9 @@ hello = "myplugin:Hello"
 
 装好后 `haiq.toml` 的 `plugins.enabled` 里加上 `"hello"` 即可。
 
-## 当前内置插件一览
+## 随仓库分发的插件（`plugins/`）
+
+下面 6 个插件在仓库根的 `plugins/` 里，和第三方插件同一条加载路径。
 
 | 插件 | 提供的服务 | 订阅的服务 / 设施 | 凭据槽位 | 命令 |
 |---|---|---|---|---|
@@ -471,7 +485,7 @@ hello = "myplugin:Hello"
 插件的**配置模型**和**厂商实现**都归插件自己，内核不认识"生图"或"对话"：
 
 ```
-builtin_plugins/painter/
+plugins/painter/
   __init__.py          # Plugin 子类（声明 secrets / provides / config_schema）
   config.py            # ImageCfg（Pydantic，字段全是生图语义）
   broker.py            # ImageBroker（业务编排）
@@ -571,4 +585,4 @@ class MyPlugin(Plugin):
 4. 面板动作受面板的三道门约束：会话 → 只读模式（`webui.write_enabled`）→ CSRF，
    并且每次执行都会写审计（`panel.action`）。
 
-参考实现：`src/haiqbot/builtin_plugins/echo/__init__.py` 的 `panel_meta/panel_page/panel_action`。
+参考实现：`plugins/echo/__init__.py` 的 `panel_meta/panel_page/panel_action`。

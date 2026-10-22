@@ -7,11 +7,11 @@ import json
 
 import httpx
 import pytest
+from haiqbot_local_painter.broker import ImageBroker
+from haiqbot_local_painter.config import ImageCfg
+from haiqbot_local_painter.providers.mock import MockImageProvider
+from haiqbot_local_painter.providers.openai_compat import OpenAICompatProvider
 
-from haiqbot.builtin_plugins.painter.broker import ImageBroker
-from haiqbot.builtin_plugins.painter.config import ImageCfg
-from haiqbot.builtin_plugins.painter.providers.mock import MockImageProvider
-from haiqbot.builtin_plugins.painter.providers.openai_compat import OpenAICompatProvider
 from haiqbot.config import MediaCfg
 from haiqbot.kernel.vault import PlainFileBackend, Vault
 from haiqbot.services.media_store import MediaStore

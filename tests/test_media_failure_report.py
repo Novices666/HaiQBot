@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
+from haiqbot_local_painter import _safe_reason
 
-from haiqbot.builtin_plugins.painter import _safe_reason
 from haiqbot.config import HaiqConfig
 from haiqbot.core.errors import MediaSendError
 from haiqbot.kernel.outbound import OutboundLimiter
