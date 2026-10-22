@@ -25,6 +25,9 @@ services:
     volumes:
       - ./data:/data
       - ./secrets:/secrets
+      # 插件目录（不放镜像里改起来要重建，挂载进来即可热替换）
+      - ./plugins:/app/plugins
+      - ./haiq.toml:/app/haiq.toml:ro
     ports:
       # 仅本机；公网只反代 /i/*
       - "127.0.0.1:8080:8080"
@@ -48,6 +51,6 @@ services:
       - "127.0.0.1:6099:6099"
     volumes:
       # 内含 webui.json / onebot11.json（有 token，已 gitignore）
-      - ./napcat/config:/app/napcat/config
+      - ./.dev/napcat/config:/app/napcat/config
       # QQ 登录态
-      - ./napcat/qq:/app/.config/QQ
+      - ./.dev/napcat/qq:/app/.config/QQ

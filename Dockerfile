@@ -17,6 +17,8 @@ WORKDIR /app
 # 先只装依赖，最大化利用镜像层缓存
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
+# 插件不再打进内核 wheel：随镜像一起放到 /app/plugins，由 plugin_dirs 发现
+COPY plugins ./plugins
 RUN uv sync --no-dev --extra official
 
 ENV PATH="/app/.venv/bin:$PATH"

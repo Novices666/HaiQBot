@@ -1,0 +1,42 @@
+# 构建上下文裁剪：Dockerfile 会 COPY src 和 plugins，别把本机状态带进镜像
+.git
+.github
+.venv
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.pre-commit-config.yaml
+
+# 运行时状态与凭据：绝不进镜像
+data/
+logs/
+secrets/
+*.db
+*.db-journal
+*.log
+.env
+*.bak
+
+# 插件目录只保留代码与清单
+plugins/**/__pycache__
+plugins/**/*.py[cod]
+
+# 前端依赖与本地构建缓存（dist 已在 src/haiqbot/webui/dist，会随 src 一起进）
+web/node_modules/
+web/.vite/
+
+# 与本镜像无关
+.dev/
+docs/
+tests/
+examples/
+.pi/
+.tmp-qr/
+web/
+
+# 部署脚本与说明
+deploy/
+scripts/
+compose.yaml

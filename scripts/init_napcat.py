@@ -11,7 +11,7 @@ sys.path.insert(0, "src")
 
 from haiqbot.kernel.vault import Vault
 
-cfg_dir = pathlib.Path("napcat/config")
+cfg_dir = pathlib.Path(".dev/napcat/config")
 cfg_dir.mkdir(parents=True, exist_ok=True)
 
 webui_token = secrets.token_urlsafe(18)

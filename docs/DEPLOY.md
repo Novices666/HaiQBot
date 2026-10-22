@@ -86,8 +86,8 @@ uv run python scripts/init_napcat.py
 ```
 
 它会做三件事：
-- 写 `napcat/config/webui.json`（WebUI 口令，仅本机可达）
-- 写 `napcat/config/onebot11.json`（OneBot WS 监听 3001，**带 access_token**）
+- 写 `.dev/napcat/config/webui.json`（WebUI 口令，仅本机可达）
+- 写 `.dev/napcat/config/onebot11.json`（OneBot WS 监听 3001，**带 access_token**）
 - 把两个 token 写进 haiq vault（`NAPCAT_WEBUI_TOKEN` / `WEFT_ONEBOT_ACCESS_TOKEN`）
 
 **第二步：起容器**
@@ -108,7 +108,7 @@ docker-compose --profile onebot up -d
 
 **第三步：登录 QQ**
 
-浏览器打开 `http://127.0.0.1:6099/webui`，填 `napcat/config/webui.json` 里的 `token`，扫码登录。
+浏览器打开 `http://127.0.0.1:6099/webui`，填 `.dev/napcat/config/webui.json` 里的 `token`，扫码登录。
 
 也可以用命令行看二维码：
 
@@ -189,8 +189,8 @@ access_token_ref = "WEFT_ONEBOT_ACCESS_TOKEN"
 ### C.3 重建 / 换账号
 
 ```bash
-docker rm -f napcat                       # 只删容器，登录态在 ./napcat/qq 里
-rm -rf napcat/qq/*                        # 真要换账号才删
+docker rm -f napcat                       # 只删容器，登录态在 ./.dev/napcat/qq 里
+rm -rf .dev/napcat/qq/*                        # 真要换账号才删
 docker-compose --profile onebot up -d
 ```
 
@@ -256,10 +256,10 @@ OneBot 路线两个已知坑，都已在代码里修掉，若从旧版本升级�
 |---|---|
 | haiqbot 数据库 / 媒体 | `data/` |
 | haiqbot 凭据 | `secrets/vault.json`（scrypt + AES-256-GCM，密码走环境变量） |
-| NapCat 配置（含 token） | `napcat/config/` |
-| QQ 登录态 | `napcat/qq/` |
+| NapCat 配置（含 token） | `.dev/napcat/config/` |
+| QQ 登录态 | `.dev/napcat/qq/` |
 
-`secrets/`、`data/`、`napcat/` 都已在 `.gitignore` 里。
+`secrets/`、`data/`、`.dev/` 都已在 `.gitignore` 里。
 
 ## 改名说明（weft → HaiQBot）
 
@@ -297,7 +297,7 @@ OneBot 路线两个已知坑，都已在代码里修掉，若从旧版本升级�
 
 **2. NapCat 的等待时间**
 
-`napcat/config/onebot11_<uin>.json` 里：
+`.dev/napcat/config/onebot11_<uin>.json` 里：
 
 ```json
 "timeout": { "baseTimeout": 10000, "uploadSpeedKBps": 256, "maxTimeout": 1800000 }
