@@ -1,0 +1,53 @@
+# haiqbot —— 两种部署形态
+#
+#   仅官方平台（不需要 QQ 客户端）：
+#       docker-compose up -d haiqbot
+#   官方 + OneBot（需要真实 QQ 账号）：
+#       docker-compose --profile onebot up -d
+#
+# 注意：
+# 1. napcat 会挂载一个真实 QQ 账号，属第三方非官方协议端，账号风险自负。
+# 2. 所有端口都只绑 127.0.0.1；公网只应反代 haiqbot 的 /i/*。
+# 3. 本机若装了系统代理（Clash 等），验证 http://127.0.0.1 时要用 trust_env=False。
+
+services:
+  haiqbot:
+    build: .
+    image: haiqbot:local
+    container_name: haiqbot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      WEFT_DATA_DIR: /data
+      WEFT_SECRETS_DIR: /secrets
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./data:/data
+      - ./secrets:/secrets
+    ports:
+      # 仅本机；公网只反代 /i/*
+      - "127.0.0.1:8080:8080"
+
+  napcat:
+    image: mlikiowa/napcat-docker:latest
+    container_name: napcat
+    restart: unless-stopped
+    profiles: ["onebot"]
+    # QQ(Electron) 需要足够的共享内存，否则容易崩
+    shm_size: "1g"
+    environment:
+      TZ: Asia/Shanghai
+      # 容器内直接跑 root，避免 Windows 绑定挂载的属主问题
+      NAPCAT_UID: "0"
+      NAPCAT_GID: "0"
+    ports:
+      # OneBot v11 正向 WebSocket —— haiqbot 连这个
+      - "127.0.0.1:3001:3001"
+      # NapCat WebUI —— 扫码登录/改配置
+      - "127.0.0.1:6099:6099"
+    volumes:
+      # 内含 webui.json / onebot11.json（有 token，已 gitignore）
+      - ./napcat/config:/app/napcat/config
+      # QQ 登录态
+      - ./napcat/qq:/app/.config/QQ

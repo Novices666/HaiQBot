@@ -1,0 +1,40 @@
+# 凭据与本地状态 —— 绝不提交
+secrets/
+.env
+.vault
+data/
+media/
+*.db
+*.db-journal
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+# 例外：WebUI 构建产物是运行时必需品，必须入库（见文件末尾说明）
+!src/haiqbot/webui/dist/
+!src/haiqbot/webui/dist/**
+build/
+.pytest_cache/
+.ruff_cache/
+
+# 运行时
+logs/
+*.log
+.haiqbot-run/
+
+# 编辑器
+.vscode/
+.idea/
+
+napcat/
+# 前端工程：依赖不入库，构建产物（src/haiqbot/webui/dist）要入库
+web/node_modules/
+web/.vite/
+
+# 本地残留 / Agent 暂存，不入库
+*.bak
+.pi/
