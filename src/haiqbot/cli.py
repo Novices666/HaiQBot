@@ -17,6 +17,7 @@ import json
 import sys
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from haiqbot.config import DEFAULT_CONFIG_FILE, dump_default_config, load_config
 from haiqbot.core.errors import ConfigError
@@ -224,6 +225,35 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     else:
         print("系统代理：未设置 OK")
 
+    # 插件来源（内核里不带任何插件：全靠 entry point 或 plugin_dirs）
+    try:
+        from haiqbot.kernel.plugin_sources import entry_point_map, local_plugin_dirs
+
+        eps = entry_point_map()
+        raw_dirs = list(cfg.plugin_dirs or [])
+        missing_dirs = [str(d) for d in raw_dirs if not Path(d).is_dir()]
+        local_found = local_plugin_dirs(cfg)
+        enabled = list(cfg.plugins_enabled or [])
+        unresolved = [pid for pid in enabled if pid not in eps and pid not in local_found]
+
+        if missing_dirs:
+            print(f"警告：plugin_dirs 里有目录不存在：{missing_dirs}")
+            print("      相对路径按「启动时的工作目录」解析 —— 从别处启动会让插件全部静默消失")
+            warnings += 1
+        if not raw_dirs and not eps:
+            print("警告：既没配 plugin_dirs、也没有 entry point，一个插件都加载不到")
+            warnings += 1
+        else:
+            names = ",".join(sorted(local_found)) or "空"
+            print(f"插件来源：entry point {len(eps)} 个 / 本地目录 {len(local_found)} 个（{names}）")
+        if unresolved:
+            print(f"警告：这些已启用的插件找不到来源：{unresolved}")
+            print("      检查 plugin_dirs 是否指对目录、该插件目录里是否有 plugin.toml")
+            warnings += 1
+    except Exception as exc:  # noqa: BLE001 - 体检失败不该让 doctor 崩
+        print(f"插件来源：检查失败（{type(exc).__name__}: {exc}）")
+        warnings += 1
+
     # 频道开关（默认全关）：最容易踩的坑是"配了却不生效"
     try:
         total, bad = _doctor_channels(cfg)
@@ -385,6 +415,117 @@ def _plugin_offline(cfg, args: argparse.Namespace) -> int:
             await app.shutdown()
 
     return asyncio.run(_run())
+
+
+def _fmt_ts(value: Any) -> str:
+    """epoch 秒 → 本地时间；空值给个占位，别打印 None。"""
+    import time
+
+    try:
+        return time.strftime("%m-%d %H:%M:%S", time.localtime(float(value)))
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _cmd_jobs(args: argparse.Namespace) -> int:
+    """定时任务：list / add / enable / disable / rm。
+
+    和 `haiq channels` 同一个定位 —— **只依赖数据库**，服务没跑也能管理。
+    「立即执行一次」只在面板里提供：CLI 没有适配器，跑了也发不出去。
+    """
+    import asyncio
+
+    from haiqbot.kernel.jobs import JobError, JobService, validate
+    from haiqbot.kernel.store import Store
+
+    cfg = load_config(args.config)
+
+    class _OfflineRuntime:
+        """离线运行时：没有适配器。所以本命令**不提供 run**。"""
+
+        adapters: dict[str, Any] = {}
+
+    async def run() -> int:
+        store = await Store(cfg.db_path).open()
+        try:
+            service = JobService(store, _OfflineRuntime())
+            action = args.action
+
+            if action == "list":
+                rows = await service.list()
+                if not rows:
+                    print(
+                        "还没有定时任务。示例：haiq jobs add --name 早报 --at 09:30 "
+                        "--channel onebot:group:123456 --text 早上好"
+                    )
+                    return 0
+                for row in rows:
+                    schedule = (
+                        f"每 {int(row['schedule'].get('seconds', 0))}s"
+                        if row["kind"] == "interval"
+                        else f"每天 {row['schedule'].get('at', '?')}"
+                    )
+                    flag = "启用" if row["enabled"] else "停用"
+                    last = row.get("last_status") or "—"
+                    print(
+                        f"{row['id']:<22} {row['name']:<12} {schedule:<14} {flag:<4} {last:<6} 下次 {_fmt_ts(row.get('next_run_at'))}"
+                    )
+                    if row.get("last_error"):
+                        print(f"    ⚠ {row['last_error']}")
+                return 0
+
+            if action == "add":
+                payload: dict[str, Any] = {
+                    "name": args.name,
+                    "channel": args.channel,
+                    "text": args.text,
+                    "enabled": not args.disabled,
+                }
+                if args.id:
+                    payload["id"] = args.id
+                if args.at:
+                    payload["kind"] = "daily"
+                    payload["schedule"] = {"at": args.at}
+                else:
+                    payload["kind"] = "interval"
+                    payload["schedule"] = {"seconds": args.seconds}
+                try:
+                    fields = validate(
+                        {
+                            **payload,
+                            "params": {"channel": args.channel, "text": args.text},
+                        }
+                    )
+                except JobError as exc:
+                    print(f"× {exc}")
+                    return 1
+                row = await service.upsert(
+                    {**payload, "kind": fields["kind"], "schedule": fields["schedule"]}
+                )
+                print(f"✅ 已创建 {row['id']}：{row['name']}")
+                print(f"   下次执行 {_fmt_ts(row.get('next_run_at'))}")
+                return 0
+
+            if action in ("enable", "disable"):
+                try:
+                    row = await service.set_enabled(args.id, action == "enable")
+                except JobError as exc:
+                    print(f"× {exc}")
+                    return 1
+                print(f"✅ {row['id']} 已{'启用' if row['enabled'] else '停用'}")
+                return 0
+
+            if action == "rm":
+                removed = await service.delete(args.id)
+                print(f"✅ 已删除 {args.id}" if removed else f"× 没有这个任务：{args.id}")
+                return 0 if removed else 1
+
+            print(f"× 未知操作：{action}")
+            return 1
+        finally:
+            await store.close()
+
+    return asyncio.run(run())
 
 
 def _cmd_channels(args: argparse.Namespace) -> int:
@@ -918,6 +1059,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_channels.add_argument("targets", nargs="*", help="频道标识，如 onebot:group:674425800")
     p_channels.add_argument("--plugins", help="逗号分隔：painter,chat:ask（留空 = 全部已装插件）")
     p_channels.set_defaults(func=_cmd_channels)
+
+    p_jobs = sub.add_parser("jobs", help="定时任务（列表/新建/启停/删除，应急入口）")
+    jobs_sub = p_jobs.add_subparsers(dest="action", required=True)
+    jobs_sub.add_parser("list", help="列出所有任务")
+    jobs_add = jobs_sub.add_parser("add", help="新建任务")
+    jobs_add.add_argument("--name", required=True, help="任务名（显示用）")
+    jobs_add.add_argument("--id", help="自定义 id（默认自动生成）")
+    jobs_add.add_argument("--at", help="每天几点执行，如 09:30")
+    jobs_add.add_argument("--seconds", type=float, default=3600.0, help="间隔秒数（不写 --at 时生效）")
+    jobs_add.add_argument("--channel", required=True, help="目标频道，如 onebot:group:674425800")
+    jobs_add.add_argument("--text", required=True, help="要发的内容")
+    jobs_add.add_argument("--disabled", action="store_true", help="建好先不启用")
+    for _action in ("enable", "disable", "rm"):
+        _p = jobs_sub.add_parser(_action, help=f"{_action} <id>")
+        _p.add_argument("id", help="任务 id")
+    p_jobs.set_defaults(func=_cmd_jobs)
 
     p_plugin = sub.add_parser("plugin", help="插件管理")
     p_plugin.add_argument("action", choices=["list", "reload", "enable", "disable"])

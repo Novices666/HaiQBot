@@ -43,28 +43,57 @@ function LogsTab() {
 
   useEffect(() => {
     let alive = true;
-    const tick = async () => {
+    let source: EventSource | null = null;
+
+    const onFrame = (raw: string) => {
       try {
-        const query = new URLSearchParams({ since: String(cursor.current), limit: "200" });
+        const payload = JSON.parse(raw) as { items: LogRow[] };
+        const incoming = payload.items ?? [];
+        if (incoming.length === 0) return;
+        cursor.current = Math.max(cursor.current, incoming[incoming.length - 1].seq);
+        setRows((prev) => {
+          const last = prev.length > 0 ? prev[prev.length - 1].seq : 0;
+          const fresh = incoming.filter((row) => row.seq > last);
+          return fresh.length > 0 ? [...prev, ...fresh].slice(-600) : prev;
+        });
+        setError(null);
+      } catch {
+        /* 心跳或半帧，忽略 */
+      }
+    };
+
+    const start = async () => {
+      // 先补一次历史：SSE 只推「连上之后」的新行
+      try {
+        const query = new URLSearchParams({ since: "0", limit: "200" });
         if (level) query.set("level", level);
         const payload = await get<LogPayload>(`/api/logs?${query.toString()}`);
         if (!alive) return;
         cursor.current = payload.cursor.seq;
         setSize(payload.cursor.size);
         setDropped(payload.cursor.dropped);
-        setError(null);
-        if (payload.items.length > 0) {
-          setRows((prev) => [...prev, ...payload.items].slice(-600));
-        }
+        setRows(payload.items);
       } catch (exc) {
         if (alive) setError((exc as Error).message);
+        return;
       }
+      if (!alive) return;
+
+      const query = new URLSearchParams({ since: String(cursor.current) });
+      if (level) query.set("level", level);
+      source = new EventSource(`/api/logs/stream?${query.toString()}`);
+      source.onmessage = (event) => onFrame(event.data);
+      source.onerror = () => {
+        // EventSource 自带重连，这里只提示，不自己再建连接（否则会叠加）
+        if (alive) setError("实时连接断开，正在自动重连…");
+      };
     };
-    void tick();
-    const timer = window.setInterval(() => void tick(), 2500);
+
+    void start();
+
     return () => {
       alive = false;
-      window.clearInterval(timer);
+      source?.close();
     };
   }, [level]);
 

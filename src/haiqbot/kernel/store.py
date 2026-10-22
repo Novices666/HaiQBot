@@ -93,6 +93,25 @@ CREATE TABLE IF NOT EXISTS channel_config (
     updated_at   REAL NOT NULL
 );
 
+-- 定时任务。schedule / params 存 JSON 字符串：结构由 kernel/jobs.py 校验，
+-- 这里只负责原样存取，避免表结构随调度语义一起漂移。
+CREATE TABLE IF NOT EXISTS job (
+    id           TEXT PRIMARY KEY,
+    name         TEXT NOT NULL,
+    kind         TEXT NOT NULL,
+    schedule     TEXT NOT NULL,
+    action       TEXT NOT NULL,
+    params       TEXT NOT NULL,
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    next_run_at  REAL,
+    last_run_at  REAL,
+    last_status  TEXT,
+    last_error   TEXT,
+    created_at   REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_job_due ON job(enabled, next_run_at);
+
 """
 
 
@@ -119,6 +138,102 @@ class Store:
         if "plugin_id" not in columns:
             await self.db.execute("ALTER TABLE media ADD COLUMN plugin_id TEXT")
             await self.db.commit()
+
+    # -- 定时任务 --------------------------------------------------------- #
+
+    _JOB_FIELDS = (
+        "id",
+        "name",
+        "kind",
+        "schedule",
+        "action",
+        "params",
+        "enabled",
+        "next_run_at",
+        "last_run_at",
+        "last_status",
+        "last_error",
+        "created_at",
+    )
+
+    @staticmethod
+    def _decode_job(row: dict[str, Any]) -> dict[str, Any]:
+        out = dict(row)
+        for key in ("schedule", "params"):
+            raw = out.get(key)
+            try:
+                out[key] = json.loads(raw) if raw else {}
+            except (TypeError, ValueError):
+                out[key] = {}
+        out["enabled"] = bool(out.get("enabled"))
+        return out
+
+    async def job_all(self) -> list[dict[str, Any]]:
+        async with self.db.execute("SELECT * FROM job ORDER BY created_at ASC") as cur:
+            return [self._decode_job(dict(r)) for r in await cur.fetchall()]
+
+    async def job_get(self, job_id: str) -> dict[str, Any] | None:
+        async with self.db.execute("SELECT * FROM job WHERE id = ?", (job_id,)) as cur:
+            row = await cur.fetchone()
+        return self._decode_job(dict(row)) if row else None
+
+    async def job_upsert(self, **fields: Any) -> None:
+        unknown = set(fields) - set(self._JOB_FIELDS)
+        if unknown:
+            raise ValueError(f"未知的任务字段：{sorted(unknown)}")
+        if "id" not in fields:
+            raise ValueError("job_upsert 必须带 id")
+        current = await self.job_get(str(fields["id"])) or {"created_at": time.time()}
+        merged = dict(current)
+        merged.update(fields)
+        merged["created_at"] = current.get("created_at") or time.time()
+        values = []
+        for key in self._JOB_FIELDS:
+            value = merged.get(key)
+            if key in ("schedule", "params") and not isinstance(value, str):
+                value = json.dumps(value or {}, ensure_ascii=False)
+            if key == "enabled":
+                value = 1 if value else 0
+            values.append(value)
+        await self.db.execute(
+            "INSERT INTO job(id,name,kind,schedule,action,params,enabled,next_run_at,"
+            "last_run_at,last_status,last_error,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(id) DO UPDATE SET name=excluded.name, kind=excluded.kind, "
+            "schedule=excluded.schedule, action=excluded.action, params=excluded.params, "
+            "enabled=excluded.enabled, next_run_at=excluded.next_run_at, "
+            "last_run_at=excluded.last_run_at, last_status=excluded.last_status, "
+            "last_error=excluded.last_error",
+            tuple(values),
+        )
+        await self.db.commit()
+
+    async def job_delete(self, job_id: str) -> bool:
+        cur = await self.db.execute("DELETE FROM job WHERE id = ?", (job_id,))
+        await self.db.commit()
+        return cur.rowcount > 0
+
+    async def job_mark_run(
+        self,
+        job_id: str,
+        *,
+        status: str,
+        error: str | None,
+        next_run_at: float | None,
+        ran_at: float,
+    ) -> None:
+        await self.db.execute(
+            "UPDATE job SET last_run_at=?, last_status=?, last_error=?, next_run_at=? WHERE id=?",
+            (ran_at, status, error, next_run_at, job_id),
+        )
+        await self.db.commit()
+
+    async def job_due(self, now: float) -> list[dict[str, Any]]:
+        """已启用且到点的任务。"""
+        async with self.db.execute(
+            "SELECT * FROM job WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?",
+            (now,),
+        ) as cur:
+            return [self._decode_job(dict(r)) for r in await cur.fetchall()]
 
     async def close(self) -> None:
         if self._db is not None:

@@ -11,16 +11,18 @@ from typing import Any
 from haiqbot.webui.api import (
     channels,
     config_api,
+    jobs,
     media,
     overview,
     panels,
     plugins,
+    secrets,
     session,
     workbench,
 )
 from haiqbot.webui.api.common import Ctx
 
-MODULES = (session, overview, plugins, config_api, channels, media, workbench, panels)
+MODULES = (session, overview, plugins, config_api, channels, media, secrets, jobs, workbench, panels)
 
 
 def build_routes(ctx: Ctx) -> list[Any]:

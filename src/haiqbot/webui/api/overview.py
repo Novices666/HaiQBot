@@ -12,6 +12,10 @@ from typing import Any
 from haiqbot.kernel import log_ring
 from haiqbot.webui.api.common import Ctx, audit, fail, float_param, int_param, ok, read_json
 
+# SSE 连接计数：每个打开的标签页占一条。上限是防「标签页开太多把服务拖住」。
+_STREAMS: list[int] = [0]
+MAX_LOG_STREAMS = 6
+
 
 def routes(ctx: Ctx) -> list[Any]:
     from starlette.routing import Route
@@ -87,6 +91,53 @@ def routes(ctx: Ctx) -> list[Any]:
         items = log_ring.recent_logs(since=since, limit=limit, level=level)
         return ok({"items": items, "cursor": log_ring.log_cursor()})
 
+    # -- 日志（SSE 实时推送） ------------------------------------------------ #
+    async def logs_stream(request: Any) -> Any:
+        """增量推送新日志；`since` 接上次的 cursor.seq。
+
+        为什么用 SSE 而不是 WebSocket：只需要服务端单向推、走 GET（天然免 CSRF）、
+        浏览器断线会自动重连 —— 这里要的正好是这三条。
+        """
+        import asyncio
+        import json
+
+        from starlette.responses import StreamingResponse
+
+        q = request.query_params
+        since = int_param(q.get("since"), 0, low=0, high=2**31)
+        level = (q.get("level") or "").strip() or None
+        if _STREAMS[0] >= MAX_LOG_STREAMS:
+            return fail(429, "too_many_streams", "实时日志连接太多了，先关掉几个标签页")
+        _STREAMS[0] += 1
+
+        async def gen() -> Any:
+            cursor = since
+            idle = 0
+            try:
+                yield f"event: ready\ndata: {json.dumps({'since': cursor, 'level': level})}\n\n"
+                while True:
+                    if await request.is_disconnected():
+                        return
+                    rows = log_ring.recent_logs(since=cursor, limit=200, level=level)
+                    if rows:
+                        cursor = int(rows[-1]["seq"])
+                        yield "data: " + json.dumps({"items": rows}, ensure_ascii=False) + "\n\n"
+                        idle = 0
+                    else:
+                        idle += 1
+                        if idle >= 15:
+                            yield ": ping\n\n"  # 心跳，防反代把空闲连接掐掉
+                            idle = 0
+                    await asyncio.sleep(1.0)
+            finally:
+                _STREAMS[0] -= 1
+
+        return StreamingResponse(
+            gen(),
+            media_type="text/event-stream",
+            headers={"cache-control": "no-store", "x-accel-buffering": "no"},
+        )
+
     # -- 审计 ---------------------------------------------------------------- #
     async def audit_list(request: Any) -> Any:
         limit = int_param(request.query_params.get("limit"), 200, low=1, high=500)
@@ -127,6 +178,7 @@ def routes(ctx: Ctx) -> list[Any]:
     return [
         Route("/api/overview", overview, methods=["GET"]),
         Route("/api/logs", logs, methods=["GET"]),
+        Route("/api/logs/stream", logs_stream, methods=["GET"]),
         Route("/api/audit", audit_list, methods=["GET"]),
         Route("/api/invocations", invocations, methods=["GET"]),
         Route("/api/invocations/stats", invocation_stats, methods=["GET"]),

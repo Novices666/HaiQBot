@@ -23,6 +23,7 @@ from haiqbot.core.reply import Reply
 from haiqbot.kernel.bus import Bus, PipelineContext
 from haiqbot.kernel.channels import ChannelGate
 from haiqbot.kernel.governance import AuditLog, Idempotency, QuotaService, RoleResolver
+from haiqbot.kernel.jobs import JobService
 from haiqbot.kernel.log import configure_logging, get_logger
 from haiqbot.kernel.outbound import OutboundLimiter
 from haiqbot.kernel.registry import Registry
@@ -66,9 +67,11 @@ class App:
         Path(cfg.data_dir).mkdir(parents=True, exist_ok=True)
 
         if demo:
-            # 演示模式：让提供方插件自己切到 mock（内核不认识 provider）
-            cfg.plugin_config.setdefault("painter", {})["provider"] = "mock"
-            cfg.plugin_config.setdefault("chat", {})["provider"] = "mock"
+            # 演示模式：让提供方插件自己切到 mock。内核既不认识 provider 的语义，
+            # 也不该知道有哪些插件 —— 所以对所有已启用插件统一下发同一项，
+            # 不认这个键的插件自然忽略它。
+            for _pid in cfg.plugins_enabled or []:
+                cfg.plugin_config.setdefault(_pid, {})["provider"] = "mock"
 
         self.store = await Store(cfg.db_path).open()
         self.vault = Vault.from_config(cfg)
@@ -111,6 +114,8 @@ class App:
             outbound=outbound,
             channel_gate=channel_gate,
         )
+        # 定时任务：建在这里是因为它要 store + runtime.adapters（发消息要用）
+        self.runtime.jobs = JobService(self.store, self.runtime)
         self.bus = bus
 
         # ⑤ 前置中间件（①②③④）—— trace 在 _on_event 里先注入，这里负责其余三步
@@ -301,6 +306,9 @@ class App:
         if self.runtime and self.runtime.scheduler:
             await self.runtime.scheduler.start()
             self._register_core_jobs()
+        # 定时任务要等适配器起来再跑，否则第一次执行会「没有适配器」
+        if self.runtime and getattr(self.runtime, "jobs", None) is not None:
+            await self.runtime.jobs.start()
 
     def _register_core_jobs(self) -> None:
         """内核自己的周期性维护（目前只有媒体 GC）。业务定时任务归插件。"""
@@ -370,6 +378,9 @@ class App:
         for adapter in self.adapters.values():
             with contextlib.suppress(Exception):
                 await adapter.stop()
+        if self.runtime and getattr(self.runtime, "jobs", None) is not None:
+            with contextlib.suppress(Exception):
+                await self.runtime.jobs.stop()
         if self.runtime and self.runtime.scheduler:
             await self.runtime.scheduler.stop()
         if self._server is not None:

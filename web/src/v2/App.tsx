@@ -50,6 +50,10 @@ import WorkbenchPage from "./pages/WorkbenchPage";
 import ObservabilityPage from "./pages/ObservabilityPage";
 
 import ChannelsPage from "./pages/ChannelsPage";
+
+import SecretsPage from "./pages/SecretsPage";
+
+import JobsPage from "./pages/JobsPage";
 import PanelRenderer, { usePanels } from "./panels";
 
 
@@ -71,6 +75,10 @@ const NAV = [
   { key: "logs", label: "日志 · 审计 · 媒体" },
 
   { key: "channels", label: "白名单与风控" },
+
+  { key: "secrets", label: "凭据管理" },
+
+  { key: "jobs", label: "定时任务" },
 
 ];
 
@@ -318,6 +326,14 @@ export default function V2App() {
       case "channels":
 
         return <ChannelsPage />;
+
+      case "secrets":
+
+        return <SecretsPage />;
+
+      case "jobs":
+
+        return <JobsPage />;
 
       default:
 
