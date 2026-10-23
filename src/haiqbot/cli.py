@@ -61,7 +61,7 @@ def _doctor_channels(cfg: object) -> tuple[int, list[dict]]:
         def discover(self) -> dict[str, str]:
             return {
                 str(getattr(cls, "id", "")): "entrypoint"
-                for cls in iter_plugin_classes()
+                for cls in iter_plugin_classes(cfg)
                 if getattr(cls, "id", None)
             }
 
@@ -71,6 +71,7 @@ def _doctor_channels(cfg: object) -> tuple[int, list[dict]]:
         try:
             runtime = type("RT", (), {})()
             runtime.store = store
+            runtime.config = cfg  # verify 需要读 [plugins] enabled
             problems = await cc.verify(runtime, _Registry())
             rows = await store.channel_all()
             return len(rows or []), [p for p in problems if p["level"] == "error"]
@@ -141,7 +142,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             break
 
     targets: list[tuple[str, str, bool]] = []
-    for slot_key, entry in sorted(_slot_index().items()):
+    for slot_key, entry in sorted(_slot_index(cfg).items()):
         section = cfg.plugin_config.get(entry["plugin"]) or {}
         targets.append(
             (
@@ -548,7 +549,7 @@ def _cmd_channels(args: argparse.Namespace) -> int:
         def discover(self) -> dict[str, str]:
             return {
                 str(getattr(cls, "id", "")): "entrypoint"
-                for cls in iter_plugin_classes()
+                for cls in iter_plugin_classes(cfg)
                 if getattr(cls, "id", None)
             }
 
@@ -562,6 +563,7 @@ def _cmd_channels(args: argparse.Namespace) -> int:
         try:
             runtime = type("RT", (), {})()
             runtime.store = store
+            runtime.config = cfg  # verify 需要读 [plugins] enabled
             runtime.audit = _Audit()
             runtime.channel_gate = None
             registry = _Registry()
@@ -636,6 +638,8 @@ def _cmd_plugin(args: argparse.Namespace) -> int:
     if args.action == "list":
         return _plugin_list(cfg, args)
 
+    if args.action == "new":
+        return _plugin_new(cfg, args)
     if not args.id:
         print(f"× 需要插件 id：haiqbot plugin {args.action} <id>")
         return 1
@@ -652,6 +656,48 @@ def _cmd_plugin(args: argparse.Namespace) -> int:
 
     print("· 未检测到运行中的实例，转为离线处理")
     return _plugin_offline(cfg, args)
+
+
+def _plugin_new(cfg, args: argparse.Namespace) -> int:
+    """`haiq plugin new <id>`：建目录 + 写清单 + 进 enabled，把两步压成一步。"""
+    from haiqbot.kernel.scaffold import ScaffoldError, scaffold_plugin
+
+    pid = (args.id or "").strip()
+    if not pid:
+        print("× 需要插件 id：haiq plugin new <id>")
+        return 1
+
+    cfg_path = Path(args.config or DEFAULT_CONFIG_FILE)
+    base = getattr(args, "dir", None)
+    if not base:
+        dirs = list(getattr(cfg, "plugin_dirs", None) or [])
+        base = dirs[0] if dirs else "plugins"
+
+    try:
+        res = scaffold_plugin(
+            pid,
+            base_dir=base,
+            config_path=cfg_path,
+            enabled=list(getattr(cfg, "plugins_enabled", None) or []),
+            force=bool(getattr(args, "force", False)),
+        )
+    except ScaffoldError as exc:
+        print(f"× {exc}")
+        return 1
+
+    print(f"✅ 已创建 {res.plugin_dir}")
+    for path in res.files:
+        print(f"   {path.name}")
+    if res.enabled_added:
+        print(f"✅ 已加进 {res.config_path} 的 [plugins] enabled")
+    else:
+        print(f"· {res.plugin_id} 已在 enabled 里，没有重复添加")
+    print()
+    print("下一步：")
+    print("  1. 重启 haiq run —— 插件是启动时 import 的，没有热重载")
+    print(f"  2. 面板「白名单与风控」把 {res.plugin_id} 勾进目标群")
+    print(f"  3. 群里发 /{res.plugin_id}")
+    return 0
 
 
 def _cmd_webui(args: argparse.Namespace) -> int:
@@ -862,14 +908,17 @@ def _secrets_reencrypt(cfg, vdir: Path, force: bool = False) -> int:
     return 0
 
 
-@lru_cache(maxsize=1)
-def _slot_index() -> dict[str, dict]:
-    """{插件.槽位: 信息}，只通过 entry point 发现。"""
+@lru_cache(maxsize=8)
+def _slot_index_for_dirs(dirs: tuple[str, ...]) -> dict[str, dict]:
+    """{插件.槽位: 信息}。按目录元组缓存 —— 不同 plugin_dirs 不能共用结果。"""
     from haiqbot.kernel.plugin import SecretSlot
     from haiqbot.kernel.plugin_sources import iter_plugin_classes
 
+    class _DirsOnly:
+        plugin_dirs = list(dirs)
+
     found: dict[str, dict] = {}
-    for cls in iter_plugin_classes():
+    for cls in iter_plugin_classes(_DirsOnly()):
         pid = getattr(cls, "id", None)
         slots = getattr(cls, "secrets", None) or {}
         if not pid or not isinstance(slots, dict):
@@ -880,12 +929,26 @@ def _slot_index() -> dict[str, dict]:
     return found
 
 
+def _slot_index(cfg: Any = None) -> dict[str, dict]:
+    """槽位索引。给了 `cfg` 就按它的 `plugin_dirs` 扫，否则按默认目录。
+
+    曾经写死成「默认目录」，结果插件目录一改（比如个人插件单独放一个目录），
+    `haiq secrets list` 就看不到它们的槽位 —— 这正是把发现路径交给配置的原因。
+    """
+    from haiqbot.kernel.plugin_sources import default_plugin_dirs
+
+    raw = getattr(cfg, "plugin_dirs", None) if cfg is not None else None
+    if raw is None:
+        raw = default_plugin_dirs()
+    return _slot_index_for_dirs(tuple(str(Path(x).as_posix()) for x in raw))
+
+
 def _resolve_target(cfg, arg: str) -> tuple[str, str]:
     """`painter.api_key` -> 物理键名；裸键名原样返回。"""
     from haiqbot.kernel.plugin import resolve_secret_ref
 
     if "." in arg:
-        entry = _slot_index().get(arg)
+        entry = _slot_index(cfg).get(arg)
         if entry:
             section = cfg.plugin_config.get(entry["plugin"]) or {}
             return (
@@ -919,7 +982,7 @@ def _cmd_secrets(args: argparse.Namespace) -> int:
     vault = Vault.from_config(cfg)
 
     if args.action == "list":
-        index = _slot_index()
+        index = _slot_index(cfg)
         shown: set[str] = set()
         print(f"凭据存储：{vdir / VAULT_FILENAME}（加密：{vault.enc_kind}）")
         if index:
@@ -965,7 +1028,7 @@ def _cmd_secrets(args: argparse.Namespace) -> int:
     if args.action == "set" and getattr(args, "missing", False):
         from haiqbot.kernel.plugin import resolve_secret_ref
 
-        index = _slot_index()
+        index = _slot_index(cfg)
         pending = []
         for slot_key in sorted(index):
             entry = index[slot_key]
@@ -1077,9 +1140,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_jobs.set_defaults(func=_cmd_jobs)
 
     p_plugin = sub.add_parser("plugin", help="插件管理")
-    p_plugin.add_argument("action", choices=["list", "reload", "enable", "disable"])
+    p_plugin.add_argument("action", choices=["list", "new", "reload", "enable", "disable"])
     p_plugin.add_argument("id", nargs="?")
     p_plugin.add_argument("--json", action="store_true")
+    p_plugin.add_argument("--dir", help="新插件的父目录（默认取配置里第一个 plugin_dirs）")
+    p_plugin.add_argument("--force", action="store_true", help="目录已存在时覆盖两个模板文件")
     p_plugin.set_defaults(func=_cmd_plugin)
 
     p_webui = sub.add_parser("webui", help="面板写操作令牌")

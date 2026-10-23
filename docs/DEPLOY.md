@@ -334,6 +334,19 @@ serve_port = 8090                          # 只读媒体服务，0 = 关闭
 haiq channels verify        # 有 error 时退出码 1
 ```
 
-它会点出「配了却不生效」的四类问题：插件名拼错、feature 未声明、`enabled=1` 但功能列表为空、
-`always` 插件写进名单里多余。`haiq doctor` 也会顺带跑一遍（error 计入退出码），
-面板「白名单与风控」页顶部同样有红/黄/绿横幅（`GET /api/channels/verify`）。
+它会点出「配了却不生效」的六类问题：
+
+| 代码 | 级别 | 含义 |
+|---|---|---|
+| `unknown_plugin` | error | 频道里写的插件 id 连目录/包都找不到 |
+| **`plugin_not_enabled`** | error | **插件在磁盘上，但没写进 `[plugins] enabled` —— 永远不会被加载** |
+| `unknown_feature` | error | 插件没有声明这个 feature |
+| `nothing_enabled` | warn | `enabled=1` 但功能列表为空 |
+| `always_on` | info | `always` 插件写进名单里是多余的 |
+| **`plugin_disabled` / `enabled_plugin_missing`** | info / error | 全局视角：哪些插件没启用、哪些启用名根本不存在 |
+
+第二行是最常见的坑：目录建了、频道也勾了，唯独忘了 `enabled` —— 表现是**完全静默**。
+启动日志也会打一条 `plugins_discovered_but_disabled` 把它点出来。
+
+`haiq doctor` 也会顺带跑一遍（error 计入退出码），面板「白名单与风控」页顶部同样有
+红/黄/绿横幅（`GET /api/channels/verify`）。

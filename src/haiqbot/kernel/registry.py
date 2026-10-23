@@ -434,6 +434,14 @@ class Registry:
                 failed=list(self._errors),
                 blocked=sorted(self._blocked),
             )
+        # 发现得到、却没进 enabled 的插件：不会被加载，频道里勾了也不会响应。
+        # 这条日志是「新人卡在 enabled 这步」唯一的主动提示 —— 不报出来就只能靠猜。
+        try:
+            idle = sorted(set(self.discover()) - set(enabled))
+        except Exception:  # noqa: BLE001 - 发现失败不该影响启动
+            idle = []
+        if idle:
+            log.info("plugins_discovered_but_disabled", plugins=idle)
         return loaded
 
     def _provides(self, pid: str) -> Any:

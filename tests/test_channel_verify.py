@@ -114,3 +114,64 @@ async def test_bad_target_format_is_error():
     rt = _Runtime([{"channel": "onebot:group:1", "enabled": 1, "plugins": ["painter:"]}])
     problems = await cc.verify(rt, _registry())
     assert [(p["level"], p["code"]) for p in problems] == [("error", "bad_target")]
+
+
+# -- 全局 enabled：磁盘上有、却没启用的插件 ------------------------------- #
+
+
+class _Cfg:
+    def __init__(self, enabled: list[str]) -> None:
+        self.plugins_enabled = enabled
+
+
+class _CfgRuntime(_Runtime):
+    def __init__(self, rows: list[dict], enabled: list[str]) -> None:
+        super().__init__(rows)
+        self.config = _Cfg(enabled)
+
+
+@pytest.mark.asyncio
+async def test_channel_target_but_plugin_not_enabled_is_error() -> None:
+    """频道里勾了、插件目录也在，但没写进 [plugins] enabled —— 配了也不会响应。"""
+    rt = _CfgRuntime([{"channel": "onebot:group:1", "enabled": 1, "plugins": ["painter:draw"]}], [])
+    problems = await cc.verify(rt, _registry())
+    codes = [(p["level"], p["code"]) for p in problems]
+    assert ("error", "plugin_not_enabled") in codes  # 逐频道：勾了但没启用
+    assert ("info", "plugin_disabled") in codes  # 全局：这个插件根本不会被加载
+    assert problems[0]["channel"] == "onebot:group:1"
+    assert "enabled" in problems[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_channel_target_with_plugin_enabled_passes() -> None:
+    rt = _CfgRuntime([{"channel": "onebot:group:1", "enabled": 1, "plugins": ["painter:draw"]}], ["painter"])
+    assert await cc.verify(rt, _registry()) == []
+
+
+@pytest.mark.asyncio
+async def test_discovered_but_disabled_is_global_info() -> None:
+    reg = _Registry(
+        {
+            "painter": _Handle("painter", rules=[_Rule("draw")]),
+            "ghost": _Handle("ghost", rules=[_Rule()]),
+        }
+    )
+    problems = await cc.verify(_CfgRuntime([], ["painter"]), reg)
+    assert [(p["level"], p["code"], p["channel"]) for p in problems] == [("info", "plugin_disabled", "*")]
+    assert "ghost" in problems[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_enabled_but_missing_is_global_error() -> None:
+    problems = await cc.verify(_CfgRuntime([], ["painter", "ghost"]), _registry())
+    assert [(p["level"], p["code"], p["channel"]) for p in problems] == [
+        ("error", "enabled_plugin_missing", "*")
+    ]
+    assert "ghost" in problems[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_no_config_means_no_guessing() -> None:
+    """桩 runtime 读不到配置时不该报「未启用」—— 宁可少报，不要乱报。"""
+    rt = _Runtime([{"channel": "onebot:group:1", "enabled": 1, "plugins": ["painter:draw"]}])
+    assert {p["code"] for p in await cc.verify(rt, _registry())} == set()

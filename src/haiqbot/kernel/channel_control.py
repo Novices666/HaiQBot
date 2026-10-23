@@ -226,12 +226,35 @@ def gating_map(registry: Any) -> dict[str, str]:
     return out
 
 
+def _enabled_plugins(runtime: Any) -> set[str] | None:
+    """读全局启用清单 `[plugins] enabled`。
+
+    读不到（CLI 的桩 runtime、配置尚未加载）就返回 `None`，调用方据此**跳过**检查 ——
+    宁可少报一条，也不要在拿不到真相时乱报 error。
+    """
+    cfg = getattr(runtime, "config", None)
+    if cfg is None:
+        return None
+    try:
+        raw = getattr(cfg, "plugins_enabled", None)
+    except Exception:  # noqa: BLE001 - 配置对象坏了不该让面板 500
+        return None
+    if raw is None:
+        return None
+    try:
+        return {str(x) for x in raw if str(x).strip()}
+    except TypeError:
+        return None
+
+
 async def verify(runtime: Any, registry: Any) -> list[dict[str, Any]]:
     """体检所有频道配置。返回 `[{channel, level, code, message}]`，level ∈ error/warn/info。"""
     problems: list[dict[str, Any]] = []
     known = _known_plugins(runtime, registry)
     feats = known_features(registry)
     gating = gating_map(registry)
+    # 全局启用清单读得到才做「未启用」检查；读不到就不猜。
+    enabled_set = _enabled_plugins(runtime)
 
     def add(channel: str, level: str, code: str, message: str) -> None:
         problems.append({"channel": channel, "level": level, "code": code, "message": message})
@@ -263,6 +286,15 @@ async def verify(runtime: Any, registry: Any) -> list[dict[str, Any]]:
                     f"{pid}：没有这个插件（已发现：{', '.join(sorted(known)) or '无'}）",
                 )
                 continue
+            if enabled_set is not None and pid not in enabled_set:
+                add(
+                    channel,
+                    "error",
+                    "plugin_not_enabled",
+                    f"{pid}：插件在磁盘上，但没写进 [plugins] enabled —— 不会被加载，"
+                    f"这里配了也不会响应（已启用：{', '.join(sorted(enabled_set)) or '无'}）",
+                )
+                continue
             if gating.get(pid) == "always":
                 add(channel, "info", "always_on", f"{pid}：always 插件，本来就与开关无关（写在这里是多余的）")
                 continue
@@ -284,4 +316,27 @@ async def verify(runtime: Any, registry: Any) -> list[dict[str, Any]]:
                     "unknown_feature",
                     f"{item}：{pid} 没有这个功能（可用：{', '.join(sorted(available))}）",
                 )
+
+    # -- 全局检查（不属于任何一条频道，channel 记为 "*"）-------------------- #
+    # 这是「配了却没反应」的另一半：频道里勾了、却没进 enabled 只能在逐频道
+    # 循环里查；而"磁盘上有、却没人用"只有全局视角才看得见。
+    if known and enabled_set is not None:
+        idle = sorted(known - enabled_set)
+        if idle:
+            add(
+                "*",
+                "info",
+                "plugin_disabled",
+                f"{len(idle)} 个插件在磁盘上但未启用：{', '.join(idle)} —— 不会被加载，"
+                f"任何频道都不会响应（要启用就加进 [plugins] enabled）",
+            )
+        missing = sorted(enabled_set - known)
+        if missing:
+            add(
+                "*",
+                "error",
+                "enabled_plugin_missing",
+                f"[plugins] enabled 里的 {', '.join(missing)} 找不到对应插件 —— "
+                f"名字打错，或目录/包装卸了（已发现：{', '.join(sorted(known)) or '无'}）",
+            )
     return problems

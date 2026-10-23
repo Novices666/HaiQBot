@@ -90,3 +90,61 @@ async def test_local_plugin_dir(tmp_path: Path, runtime: Runtime) -> None:
     assert handle.manifest.version == "0.2.0"
     assert handle.manifest.source == "local"
     assert runtime.bus.rules_of("hello")
+
+
+class _LogSink:
+    """替掉模块级 log，只为断言事件；不关心格式。"""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict]] = []
+
+    def info(self, event: str, **kw: object) -> None:
+        self.events.append((event, kw))
+
+    def warning(self, *_a: object, **_kw: object) -> None:
+        return None
+
+    def error(self, *_a: object, **_kw: object) -> None:
+        return None
+
+    def exception(self, *_a: object, **_kw: object) -> None:
+        return None
+
+
+async def test_load_enabled_reports_discovered_but_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """磁盘/入口里能发现的插件，只要没进 enabled 就永远不加载 —— 启动时说清是哪些。"""
+    from haiqbot.kernel import registry as reg_mod
+
+    sink = _LogSink()
+    monkeypatch.setattr(reg_mod, "log", sink)
+
+    class _Cfg:
+        plugins_enabled: list[str] = []
+
+    class _RT:
+        config = _Cfg()
+
+    registry = reg_mod.Registry(_RT())  # type: ignore[arg-type]
+    monkeypatch.setattr(registry, "discover", lambda: {"echo": "local", "guard": "local"})
+
+    assert await registry.load_enabled() == []
+    assert ("plugins_discovered_but_disabled", {"plugins": ["echo", "guard"]}) in sink.events
+
+
+async def test_load_enabled_silent_when_everything_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    from haiqbot.kernel import registry as reg_mod
+
+    sink = _LogSink()
+    monkeypatch.setattr(reg_mod, "log", sink)
+
+    class _Cfg:
+        plugins_enabled: list[str] = []
+
+    class _RT:
+        config = _Cfg()
+
+    registry = reg_mod.Registry(_RT())  # type: ignore[arg-type]
+    monkeypatch.setattr(registry, "discover", dict)
+
+    await registry.load_enabled()
+    assert sink.events == []
