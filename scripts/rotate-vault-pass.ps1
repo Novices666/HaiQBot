@@ -33,7 +33,7 @@ if ($confirm -ne "y") {
 
 # 旧口令：明文文件还在就先用它，避免让用户再抄一遍
 if (Test-Path $plain) {
-    $env:WEFT_VAULT_PASSPHRASE = (Get-Content $plain -Raw).Trim()
+    $env:HAIQ_VAULT_PASSPHRASE = (Get-Content $plain -Raw).Trim()
     Write-Host "ok 已从 .vault-pass.txt 载入旧口令（不回显）" -ForegroundColor Green
 }
 else {
@@ -48,7 +48,7 @@ try {
 finally {
     Pop-Location
     # 别把口令留在当前会话环境里
-    $env:WEFT_VAULT_PASSPHRASE = $null
+    $env:HAIQ_VAULT_PASSPHRASE = $null
 }
 
 if ($code -ne 0) {
@@ -72,9 +72,9 @@ if (Test-Path $plain) {
 
 Write-Host ""
 Write-Host "下一步：把新口令设置到环境变量（三选一）"
-Write-Host '  1) 当前会话：  $env:WEFT_VAULT_PASSPHRASE = "<新口令>"'
-Write-Host '  2) 用户级永久：setx WEFT_VAULT_PASSPHRASE "<新口令>"   # 写注册表，明文，见下方说明'
-Write-Host '  3) 服务：      nssm set <服务名> AppEnvironmentExtra WEFT_VAULT_PASSPHRASE=<新口令>'
+Write-Host '  1) 当前会话：  $env:HAIQ_VAULT_PASSPHRASE = "<新口令>"'
+Write-Host '  2) 用户级永久：setx HAIQ_VAULT_PASSPHRASE "<新口令>"   # 写注册表，明文，见下方说明'
+Write-Host '  3) 服务：      nssm set <服务名> AppEnvironmentExtra HAIQ_VAULT_PASSPHRASE=<新口令>'
 Write-Host ""
 Write-Host "setx 会把口令明文写进用户注册表（同账户可读），比明文文件好，但不如每次启动时注入。" -ForegroundColor Yellow
 Write-Host ""

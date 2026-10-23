@@ -7,10 +7,10 @@ import json
 
 import httpx
 import pytest
-from haiqbot_local_painter.broker import ImageBroker
-from haiqbot_local_painter.config import ImageCfg
-from haiqbot_local_painter.providers.mock import MockImageProvider
-from haiqbot_local_painter.providers.openai_compat import OpenAICompatProvider
+from haiqbot_local_assistant.image.broker import ImageBroker
+from haiqbot_local_assistant.image.config import ImageCfg
+from haiqbot_local_assistant.image.providers.mock import MockImageProvider
+from haiqbot_local_assistant.image.providers.openai_compat import OpenAICompatProvider
 
 from haiqbot.config import MediaCfg
 from haiqbot.kernel.vault import PlainFileBackend, Vault
@@ -89,7 +89,7 @@ async def test_media_gc_removes_expired(store, cfg) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _auth(vault, ref: str = "WEFT_IMAGE_API_KEY"):
+def _auth(vault, ref: str = "HAIQ_IMAGE_API_KEY"):
     """把 vault 适配成 provider 需要的鉴权头生成器。"""
 
     return lambda: {"Authorization": f"Bearer {vault.require(ref)}"}
@@ -104,7 +104,7 @@ async def test_provider_base64_path(tmp_path) -> None:
 
     vault = Vault([PlainFileBackend(tmp_path / "v.json")])
 
-    vault.set("WEFT_IMAGE_API_KEY", "sk-test-key-abcdefghijkl")
+    vault.set("HAIQ_IMAGE_API_KEY", "sk-test-key-abcdefghijkl")
 
     seen: list[dict] = []
 
@@ -119,7 +119,7 @@ async def test_provider_base64_path(tmp_path) -> None:
 
         return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(PNG_1PX).decode()}]})
 
-    cfg = ImageCfg(base_url="https://api.example.com/v1", model="m", api_key_ref="WEFT_IMAGE_API_KEY")
+    cfg = ImageCfg(base_url="https://api.example.com/v1", model="m", api_key_ref="HAIQ_IMAGE_API_KEY")
 
     provider = OpenAICompatProvider(_auth(vault), cfg, client=_client(handler))
 
@@ -138,7 +138,7 @@ async def test_provider_url_path_is_downloaded(tmp_path) -> None:
 
     vault = Vault([PlainFileBackend(tmp_path / "v.json")])
 
-    vault.set("WEFT_IMAGE_API_KEY", "sk-test-key-abcdefghijkl")
+    vault.set("HAIQ_IMAGE_API_KEY", "sk-test-key-abcdefghijkl")
 
     def handler(request: httpx.Request) -> httpx.Response:
 
@@ -147,7 +147,7 @@ async def test_provider_url_path_is_downloaded(tmp_path) -> None:
 
         return httpx.Response(200, json={"data": [{"url": "https://cdn.example.com/a.png?sig=SECRET"}]})
 
-    cfg = ImageCfg(base_url="https://api.example.com/v1", api_key_ref="WEFT_IMAGE_API_KEY")
+    cfg = ImageCfg(base_url="https://api.example.com/v1", api_key_ref="HAIQ_IMAGE_API_KEY")
 
     provider = OpenAICompatProvider(_auth(vault), cfg, client=_client(handler))
 
@@ -164,13 +164,13 @@ async def test_provider_error_does_not_leak_key(tmp_path) -> None:
 
     secret = "sk-leaky-key-0987654321"
 
-    vault.set("WEFT_IMAGE_API_KEY", secret)
+    vault.set("HAIQ_IMAGE_API_KEY", secret)
 
     def handler(request: httpx.Request) -> httpx.Response:
 
         return httpx.Response(401, json={"error": f"invalid key {secret}"})
 
-    cfg = ImageCfg(base_url="https://api.example.com/v1", api_key_ref="WEFT_IMAGE_API_KEY")
+    cfg = ImageCfg(base_url="https://api.example.com/v1", api_key_ref="HAIQ_IMAGE_API_KEY")
 
     provider = OpenAICompatProvider(_auth(vault), cfg, client=_client(handler))
 

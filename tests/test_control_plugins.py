@@ -28,9 +28,9 @@ def config_file(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def ctl(runtime: Runtime, vault: object, config_file: Path) -> Runtime:
-    runtime.config.webui = WebuiCfg(enabled=False, write_enabled=True, token_ref="WEFT_WEBUI_TOKEN")
+    runtime.config.webui = WebuiCfg(enabled=False, write_enabled=True, token_ref="HAIQ_WEBUI_TOKEN")
     runtime.config.config_path = config_file
-    vault.set("WEFT_WEBUI_TOKEN", TOKEN)  # type: ignore[attr-defined]
+    vault.set("HAIQ_WEBUI_TOKEN", TOKEN)  # type: ignore[attr-defined]
     return runtime
 
 
@@ -71,41 +71,48 @@ def _auth(token: str | None = TOKEN) -> dict[str, str]:
 async def test_plugins_endpoint_exposes_config_and_schema(ui: object) -> None:
     async with await _client(ui) as client:
         rows = (await client.get("/api/plugins")).json()["data"]
-    chat = next(r for r in rows if r["id"] == "chat")
+    chat = next(r for r in rows if r["id"] == "assistant")
     keys = [f["key"] for f in chat["config_schema"]]
-    assert keys, "chat 应声明自己的参数（provider / model / ack_text …）"
-    assert "ack_text" in keys
-    assert "provider" in keys, "提供方选择权归插件所有"
+    assert keys, "assistant 应声明自己的参数（image_* / chat_* …）"
+    assert "chat_temperature" in keys
+    assert "image_provider" in keys, "提供方选择权归插件所有"
     assert isinstance(chat["config"], dict)
 
 
 async def test_plugin_config_requires_csrf(ui: object) -> None:
     async with await _client(ui) as client:
-        resp = await client.post("/api/plugins/chat/config", json={"ack_text": "x"})
+        resp = await client.post("/api/plugins/assistant/config", json={"chat_temperature": 0.3})
     assert resp.status_code == 403
 
 
 async def test_plugin_config_persists_and_hot_applies(
     ui: object, ctl: Runtime, registry: Registry, config_file: Path
 ) -> None:
-    await registry.load("chat")  # 要 loaded 才能验证热更新
-    handle = registry.handles()["chat"]
+    await registry.load("assistant")  # 要 loaded 才能验证热更新
+    handle = registry.handles()["assistant"]
 
     async with await _client(ui) as client:
-        resp = await client.post("/api/plugins/chat/config", json={"ack_text": "稍等～"}, headers=_auth())
+        resp = await client.post(
+            "/api/plugins/assistant/config", json={"chat_temperature": 0.3}, headers=_auth()
+        )
 
     assert resp.status_code == 200
     body = resp.json()["data"]
     assert body["applied_live"] is True
-    assert body["changed"][0]["key"] == "ack_text"
+    assert body["changed"][0]["key"] == "chat_temperature"
 
-    # 1) 落盘
-    disk = tomllib.loads(config_file.read_text(encoding="utf-8"))
-    assert disk["plugins"]["chat"]["ack_text"] == "稍等～"
+    # 1) 落盘：主配置只剩注册，参数进了 data/plugins/<id>.toml
+    main = tomllib.loads(config_file.read_text(encoding="utf-8"))
+    assert set(main["plugins"]) == {"enabled"}, "插件参数不该再写回主配置"
+    from haiqbot.config import plugin_config_file
+
+    plugin_file = plugin_config_file(ctl.config.data_dir, "assistant")
+    assert plugin_file.is_file(), "插件配置应落到 data/plugins/<id>.toml"
+    assert tomllib.loads(plugin_file.read_text(encoding="utf-8"))["chat_temperature"] == 0.3
     # 2) 内存：runtime config + 运行中插件的 ctx.config 都要跟着变
-    assert ctl.config.plugin_config["chat"]["ack_text"] == "稍等～"
-    assert handle.context.config["ack_text"] == "稍等～"
-    assert handle.plugin.config["ack_text"] == "稍等～"
+    assert ctl.config.plugin_config["assistant"]["chat_temperature"] == 0.3
+    assert handle.context.config["chat_temperature"] == 0.3
+    assert handle.plugin.config["chat_temperature"] == 0.3
 
 
 async def test_plugin_config_accepts_non_string_scalars(ui: object, ctl: Runtime) -> None:
@@ -123,7 +130,7 @@ async def test_plugin_config_accepts_non_string_scalars(ui: object, ctl: Runtime
 async def test_plugin_config_rejects_bad_keys(ui: object, config_file: Path, key: str) -> None:
     before = config_file.read_text(encoding="utf-8")
     async with await _client(ui) as client:
-        resp = await client.post("/api/plugins/chat/config", json={key: "v"}, headers=_auth())
+        resp = await client.post("/api/plugins/assistant/config", json={key: "v"}, headers=_auth())
     assert resp.status_code == 400
     assert config_file.read_text(encoding="utf-8") == before
 
@@ -136,7 +143,7 @@ async def test_plugin_config_unknown_plugin_is_404(ui: object) -> None:
 
 async def test_plugin_config_is_audited(ui: object, ctl: Runtime) -> None:
     async with await _client(ui) as client:
-        await client.post("/api/plugins/chat/config", json={"ack_text": "hi"}, headers=_auth())
+        await client.post("/api/plugins/assistant/config", json={"chat_temperature": 0.5}, headers=_auth())
     actions = [r["action"] for r in await ctl.store.recent_audit(20)]
     assert "webui:plugin.config" in actions
 

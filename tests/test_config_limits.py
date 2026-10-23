@@ -5,10 +5,10 @@ from __future__ import annotations
 import tomllib
 
 import pytest
-from haiqbot_local_chat.broker import LLMBroker
-from haiqbot_local_chat.providers.mock import MockChatProvider
-from haiqbot_local_painter.broker import ImageBroker
-from haiqbot_local_painter.providers.mock import MockImageProvider
+from haiqbot_local_assistant.chat.broker import LLMBroker
+from haiqbot_local_assistant.chat.providers.mock import MockChatProvider
+from haiqbot_local_assistant.image.broker import ImageBroker
+from haiqbot_local_assistant.image.providers.mock import MockImageProvider
 
 from haiqbot.config import dump_default_config
 from haiqbot.services.providers.base import ProviderError
@@ -58,9 +58,11 @@ async def test_chat_zero_limit_means_unlimited() -> None:
 # init 模板：默认值单一来源（插件 config_schema）
 # --------------------------------------------------------------------------- #
 def test_default_config_is_valid_toml() -> None:
-    data = tomllib.loads(dump_default_config())
-    assert data["plugins"]["painter"]["api_key_ref"] == "WEFT_IMAGE_API_KEY"
-    assert data["plugins"]["chat"]["api_key_ref"] == "WEFT_CHAT_API_KEY"
+    text = dump_default_config()
+    data = tomllib.loads(text)
+    # 插件参数已外置到 data/plugins/<id>.toml，主模板只剩注册信息
+    assert set(data["plugins"]) == {"enabled"}
+    assert "data/plugins/" in text
 
 
 def test_default_config_contains_no_secret_values() -> None:
@@ -77,9 +79,7 @@ def test_plugin_sections_generated_from_schema() -> None:
     from haiqbot.config import _plugin_schemas
 
     schemas = _plugin_schemas()
-    assert "painter" in schemas
-    assert "chat" in schemas
-    painter_keys = {field["key"] for field in schemas["painter"]}
-    assert "max_prompt_chars" in painter_keys
-    chat_keys = {field["key"] for field in schemas["chat"]}
-    assert "max_input_chars" in chat_keys
+    assert "assistant" in schemas
+    assistant_keys = {field["key"] for field in schemas["assistant"]}
+    assert "image_max_prompt_chars" in assistant_keys
+    assert "chat_max_input_chars" in assistant_keys

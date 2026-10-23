@@ -8,31 +8,18 @@ log_json = false
 # 被静默忽略（表现是插件全部消失、且没有任何报错）。
 # 相对路径按启动时的工作目录解析，所以起服务前先 cd 到项目根。
 # 两个目录：`plugins/` = 框架自带的最小集（echo / help），谁都有；
-# `plugins-extra/` = 自己的插件（painter / chat / guard / admin），不属于框架。
+# `plugins-extra/` = 自己的插件（assistant / guard / admin），不属于框架。
 # 要把自有插件整包搬走，删掉第二个路径即可。
 plugin_dirs = ["plugins", "plugins-extra"]
 
+# 插件自己的参数**不在这个文件里**：见 data/plugins/<插件id>.toml
+# （面板「插件设置」写入；文件不存在就用插件声明的默认值）
+
 [plugins]
-enabled = ["echo", "help", "admin", "painter", "chat", "guard"]
+enabled = ["echo", "help", "admin", "assistant", "guard"]
 
-[plugins.chat]
-ack_text = "🤔 思考中…"
-
-# 每个插件的私有参数放在 [plugins.<id>] 下，例如：
-# [plugins.painter]
-# max_per_user_per_day = 20
-provider = "openai_compat"
-base_url = "https://ai.haigo.cc/v1"
-model = "deepseek-v4.1-flash"
-api_key_ref = "WEFT_CHAT_API_KEY"
-system_prompt = "你是一个简洁友好的群聊助手，用中文回答，控制在 150 字以内。"
-max_tokens = 800
-temperature = 0.7
-max_input_chars = 2000
-history_turns = 6
-retries = 4
-retry_backoff_seconds = 1.0
-
+# 一个入口：判断「聊天还是画图」→ 对话 / 出图 / 内容审查。
+# 原 painter 与 chat 已合并进这里：配置按前缀区分（image_* / chat_*）。
 [quota]
 enabled = true
 per_user_per_day = 20
@@ -65,7 +52,7 @@ port = 8080
 [official]
 enabled = false
 # app_id = ""
-app_secret_ref = "WEFT_QQ_APP_SECRET"
+app_secret_ref = "HAIQ_QQ_APP_SECRET"
 
 [onebot]
 enabled = true
@@ -81,20 +68,12 @@ webhook_path = "/onebot"
 webhook_secret_ref = ""
 # mode=sse：事件流路径
 sse_path = "/_events"
-access_token_ref = "WEFT_ONEBOT_ACCESS_TOKEN"
+access_token_ref = "HAIQ_ONEBOT_ACCESS_TOKEN"
 # 图片怎么发：auto（有本地文件就内嵌 base64，无需公网）/ base64 / url
 image_transport = "auto"
 # 控制类 API 超时 / 带媒体发送的超时（大图上传要留时间，别用 15s）
 api_timeout_seconds = 60.0
 send_timeout_seconds = 120
-
-[plugins.painter]
-provider = "openai_compat"
-base_url = "https://ai.haigo.cc/v1"
-model = "gpt-image-2"
-api_key_ref = "WEFT_IMAGE_API_KEY"
-size = "1024x1024"
-max_prompt_chars = 800
 
 [outbound]
 enabled = true
@@ -109,15 +88,4 @@ retry_backoff_seconds = 2
 # aead = scrypt + AES-256-GCM（推荐）；none = 明文（仅限你确信没人能读这台机器）
 enc = "aead"
 # 密码所在的环境变量名。真值只放环境变量，不写在这里。
-passphrase_ref = "WEFT_VAULT_PASSPHRASE"
-
-[plugins.guard]
-# 风控（gating = "always"：不受频道开关约束）
-window_seconds = 10
-max_messages = 5
-block_links = true
-blocked_words = ""
-warn_text = "⚠️ 慢一点：{seconds} 秒内最多 {limit} 条"
-block_text = "🚫 已拦截：{reason}"
-# 管理员免检。自测拦截效果时可以先设 false，验证完记得改回 true
-exempt_admins = true
+passphrase_ref = "HAIQ_VAULT_PASSPHRASE"

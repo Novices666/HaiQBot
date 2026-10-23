@@ -83,7 +83,7 @@ class App:
             log.error(
                 "vault_unavailable",
                 error=type(exc).__name__,
-                hint="检查 WEFT_VAULT_PASSPHRASE 或执行 haiq secrets reencrypt",
+                hint="检查 HAIQ_VAULT_PASSPHRASE 或执行 haiq secrets reencrypt",
             )
 
         resolver = RoleResolver.from_policy(cfg.policy)

@@ -226,6 +226,13 @@ async def draw(self, ctx, prompt: str): ...
 
 ## 在控制台里配置你的插件
 
+插件参数落在**插件自己的文件**：data/plugins/<插件id>.toml（扁平 key/value）。
+主 haiq.toml 只留注册信息（plugin_dirs + [plugins] enabled），所以：
+
+- 卸载插件 = 删目录 + 删一个文件，主配置不用动；
+- 默认值只有一处来源（你的 config_schema()），文件里只写「覆盖过的值」；
+- 面板「插件设置」和 haiq plugin config 写的都是这个文件。
+
 声明 `config_schema()`，控制台「插件」页会自动渲染成表单（不声明则退化为自由键值编辑）：
 
 ```python
@@ -336,7 +343,7 @@ class Painter(Plugin):
     secrets = {
         "api_key": SecretSlot(
             label="生图 API Key",  # 面板与报错里给人看的名字
-            ref="WEFT_IMAGE_API_KEY",  # 可省略；省略时推导为 haiqbot.painter.api_key
+            ref="HAIQ_IMAGE_API_KEY",  # 可省略；省略时推导为 haiqbot.painter.api_key
             description="OpenAI 兼容的密钥",
         ),
     }
@@ -369,7 +376,7 @@ class Painter(Plugin):
 
 ```bash
 haiq secrets                      # 槽位 / 状态 / 来源 / 物理键名
-haiq secrets set painter.api_key  # 用槽位名，不用记物理键名
+haiq secrets set assistant.image_api_key  # 用槽位名，不用记物理键名
 haiq secrets set --missing        # 只提示缺失项
 haiq secrets passwd               # 轮换口令：旧口令解开 -> 新口令重写
 ```
@@ -553,22 +560,21 @@ hello = "myplugin:Hello"
 |---|---|---|---|---|---|
 | `echo` | `plugins/` | — | — | — | `/echo` |
 | `help` | `plugins/` | — | — | — | `/help` |
-| `painter` | `plugins-extra/` | `image:generate` v1（`generate`） | `image:generate`（自用）、`storage:media` | `painter.api_key` → `WEFT_IMAGE_API_KEY` | `/画图` |
-| `chat` | `plugins-extra/` | `llm:chat` v1（`chat`） | `kv`、`llm:chat`（自用） | `chat.api_key` → `WEFT_CHAT_API_KEY` | `/问`、`@机器人`、`/重置对话` |
+| `assistant` | `plugins-extra/` | `image:generate` v1 + `llm:chat` v1 | 两个服务都自用、`kv`、`moderation` | `assistant.image_api_key` → `HAIQ_IMAGE_API_KEY`、`assistant.chat_api_key` → `HAIQ_CHAT_API_KEY` | `/问`、`/画图`、`@机器人`、`/重置对话` |
 | `guard` | `plugins-extra/` | — | `moderation` | — | 刷屏限流 / 广告过滤 |
 | `admin` | `plugins-extra/` | — | — | — | `/plugins`、`/status`（需 ADMIN） |
 
 右边四个**不属于框架**：它们绑定具体厂商的 API Key，或写死了我自己的取舍（限流阈值、
 违禁词表）。`plugins-extra/README.md` 说明了怎么整包搬走。
 
-槽位名写法是 `<插件 id>.<槽位名>`，例如 `haiq secrets set painter.api_key`。
+槽位名写法是 `<插件 id>.<槽位名>`，例如 `haiq secrets set assistant.image_api_key`。
 
 ## 插件自包含：配置 + 厂商实现
 
 插件的**配置模型**和**厂商实现**都归插件自己，内核不认识"生图"或"对话"：
 
 ```
-plugins-extra/painter/
+plugins-extra/assistant/image/
   __init__.py          # Plugin 子类（声明 secrets / provides / config_schema）
   config.py            # ImageCfg（Pydantic，字段全是生图语义）
   broker.py            # ImageBroker（业务编排）
@@ -580,7 +586,7 @@ plugins-extra/painter/
 内核只保留 `haiqbot/services/providers/base.py`（`ProviderError`、`ImageProvider` 协议）。
 
 **所以：不要把厂商实现塞进内核。** 想让插件支持多家厂商，就放自己的 `providers/` 里按
-`cfg.provider` 分派 —— `painter` / `chat` 就是范例。
+`cfg.provider` 分派 —— `assistant` 的 `image/` 与 `chat/` 两层就是范例。
 
 `haiqbot init` 生成 `[plugins.*]` 段时**扫描插件的 `config_schema()`**，所以默认值只有一处来源：
 改 schema 的 `default`，`haiqbot init` 跟着变，不需要动内核代码。

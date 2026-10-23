@@ -17,7 +17,7 @@ def full_cfg(tmp_path: Path) -> HaiqConfig:
         db_path=tmp_path / "data" / "haiq.db",
         secrets_dir=tmp_path / "secrets",
         log_level="CRITICAL",
-        plugins_enabled=["echo", "help", "painter"],
+        plugins_enabled=["echo", "help", "assistant"],
         quota=QuotaCfg(enabled=True, per_user_per_day=10, per_channel_per_day=50),
         policy=PolicyCfg(handle_timeout_seconds=5.0),
         media=MediaCfg(dir=tmp_path / "data" / "media", ttl_seconds=3600),
@@ -31,7 +31,6 @@ async def test_demo_flow(full_cfg: HaiqConfig) -> None:
 
     texts = [m["text"] for m in result["sent"]]
     assert any("可用命令" in t for t in texts), "/help 应输出命令汇总"
-    assert any("排队中" in t for t in texts), "/画图 应先回 ack"
 
     images = [seg for m in result["sent"] for seg in m["segments"] if seg["kind"] == "image"]
     assert images, "应当发出至少一条图片消息"

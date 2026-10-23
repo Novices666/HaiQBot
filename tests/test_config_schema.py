@@ -60,9 +60,9 @@ def config_file(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def ctl(runtime: Runtime, vault: object, config_file: Path) -> Runtime:
-    runtime.config.webui = WebuiCfg(enabled=False, write_enabled=True, token_ref="WEFT_WEBUI_TOKEN")
+    runtime.config.webui = WebuiCfg(enabled=False, write_enabled=True, token_ref="HAIQ_WEBUI_TOKEN")
     runtime.config.config_path = config_file
-    vault.set("WEFT_WEBUI_TOKEN", TOKEN)  # type: ignore[attr-defined]
+    vault.set("HAIQ_WEBUI_TOKEN", TOKEN)  # type: ignore[attr-defined]
     return runtime
 
 

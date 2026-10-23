@@ -30,8 +30,8 @@ def _cfg(tmp_path: Path, *, enc: str = "aead") -> HaiqConfig:
 def _make_legacy(secrets_dir: Path) -> None:
     secrets_dir.mkdir(parents=True, exist_ok=True)
     old = DpapiFileBackend(secrets_dir / "vault.bin")
-    old.set("WEFT_IMAGE_API_KEY", "sk-legacy-image-key-0001")
-    old.set("WEFT_CHAT_API_KEY", "sk-legacy-chat-key-0002")
+    old.set("HAIQ_IMAGE_API_KEY", "sk-legacy-image-key-0001")
+    old.set("HAIQ_CHAT_API_KEY", "sk-legacy-chat-key-0002")
 
 
 def test_reencrypt_moves_dpapi_to_aead(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -40,7 +40,7 @@ def test_reencrypt_moves_dpapi_to_aead(tmp_path: Path, monkeypatch: pytest.Monke
     cfg = _cfg(tmp_path)
     secrets_dir = tmp_path / "secrets"
     _make_legacy(secrets_dir)
-    monkeypatch.setenv("WEFT_VAULT_PASSPHRASE", PASS)
+    monkeypatch.setenv("HAIQ_VAULT_PASSPHRASE", PASS)
 
     assert _secrets_reencrypt(cfg, secrets_dir) == 0
 
@@ -50,8 +50,8 @@ def test_reencrypt_moves_dpapi_to_aead(tmp_path: Path, monkeypatch: pytest.Monke
 
     vault = Vault.from_config(cfg)
     assert vault.enc_kind == "aead"
-    assert vault.get("WEFT_IMAGE_API_KEY") == "sk-legacy-image-key-0001"
-    assert vault.get("WEFT_CHAT_API_KEY") == "sk-legacy-chat-key-0002"
+    assert vault.get("HAIQ_IMAGE_API_KEY") == "sk-legacy-image-key-0001"
+    assert vault.get("HAIQ_CHAT_API_KEY") == "sk-legacy-chat-key-0002"
 
 
 def test_reencrypt_refuses_to_overwrite_without_force(
@@ -63,7 +63,7 @@ def test_reencrypt_refuses_to_overwrite_without_force(
     secrets_dir = tmp_path / "secrets"
     _make_legacy(secrets_dir)
     (secrets_dir / "vault.json").write_text("{}", encoding="utf-8")
-    monkeypatch.setenv("WEFT_VAULT_PASSPHRASE", PASS)
+    monkeypatch.setenv("HAIQ_VAULT_PASSPHRASE", PASS)
 
     assert _secrets_reencrypt(cfg, secrets_dir) == 1
     # 原有文件不能被破坏
@@ -87,4 +87,4 @@ def test_reencrypt_to_plain_mode(tmp_path: Path) -> None:
     assert _secrets_reencrypt(cfg, secrets_dir) == 0
     vault = Vault.from_config(cfg)
     assert vault.enc_kind == "none"
-    assert vault.get("WEFT_IMAGE_API_KEY") == "sk-legacy-image-key-0001"
+    assert vault.get("HAIQ_IMAGE_API_KEY") == "sk-legacy-image-key-0001"

@@ -61,7 +61,7 @@ uv run haiq webui token --generate   # 生成并写入 vault
 接真 QQ（OneBot v11）三步：
 
 1. 装协议端（推荐 [NapCat](https://github.com/NapNeko/NapCatQQ)），扫码登录
-2. `haiq.toml` 里填 `[onebot] url` 与 `access_token_ref`，然后 `haiq secrets set WEFT_ONEBOT_ACCESS_TOKEN`
+2. `haiq.toml` 里填 `[onebot] url` 与 `access_token_ref`，然后 `haiq secrets set HAIQ_ONEBOT_ACCESS_TOKEN`
 3. `haiq run` → 去面板「白名单与风控」把群加进来
 
 完整流程见 **[docs/QUICKSTART.md](docs/QUICKSTART.md)**，含 NapCat 容器、扫码、排障。
@@ -200,9 +200,9 @@ haiq webui token [--generate]                           # 面板令牌
 |---|---|
 | OneBot v11 四种模式 | ✅ 真机验证过（NapCat 4.18 + Docker） |
 | 官方 OpenAPI 通道 | ⚠️ 代码完整、单测覆盖，**从未真机验证**（缺 AppID/AppSecret） |
-| 6 个随仓库插件 | ✅ echo / help / admin / painter / chat / guard |
+| 随仓库插件 | ✅ 框架最小集 echo / help；自有 assistant / guard / admin |
 | 控制台 8 页 + 插件页 | ✅ 真实 Chromium 点过一遍，console 零错误 |
-| 测试 | 534 passed；`ruff check` / `format` 全绿 |
+| 测试 | 615 passed；`ruff check` / `format` 全绿 |
 | 图片发送 | ⚠️ 偶发 `rich media transfer failed`；宿主机开着系统代理时必失败 |
 | 面板内重启/停机 | ❌ 未做（需要进程守护，否则退出后没人拉起） |
 | 子进程隔离 | ❌ 未做（插件一律 inline 加载，`isolation` 目前只是声明） |

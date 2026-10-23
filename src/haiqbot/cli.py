@@ -39,7 +39,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
     print(f"✅ 已生成 {target}")
     print(f"✅ 已创建 {secrets_dir}/（已加入 .gitignore）")
     print("\n下一步：")
-    print("  haiq vault set WEFT_IMAGE_API_KEY   # 生图密钥（交互式输入，不回显）")
+    print("  haiq vault set HAIQ_IMAGE_API_KEY   # 生图密钥（交互式输入，不回显）")
     print(
         "  haiq doctor                          # 自检\n  haiq channels list                   # 频道开关（应急入口）"
     )

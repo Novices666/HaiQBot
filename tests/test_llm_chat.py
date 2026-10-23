@@ -8,10 +8,10 @@ from pathlib import Path
 
 import httpx
 import pytest
-from haiqbot_local_chat.broker import LLMBroker
-from haiqbot_local_chat.config import ChatCfg
-from haiqbot_local_chat.providers.mock import MockChatProvider
-from haiqbot_local_chat.providers.openai_compat import OpenAICompatChatProvider
+from haiqbot_local_assistant.chat.broker import LLMBroker
+from haiqbot_local_assistant.chat.config import ChatCfg
+from haiqbot_local_assistant.chat.providers.mock import MockChatProvider
+from haiqbot_local_assistant.chat.providers.openai_compat import OpenAICompatChatProvider
 
 from haiqbot.adapters.mock import MockAdapter
 from haiqbot.app import App
@@ -27,14 +27,14 @@ from haiqbot.services.providers.base import ProviderError
 # --------------------------------------------------------------------------- #
 # provider
 # --------------------------------------------------------------------------- #
-def _auth(vault, ref: str = "WEFT_CHAT_API_KEY"):
+def _auth(vault, ref: str = "HAIQ_CHAT_API_KEY"):
     """把 vault 适配成 provider 需要的鉴权头生成器。"""
     return lambda: {"Authorization": f"Bearer {vault.require(ref)}"}
 
 
 def _vault(tmp_path: Path, value: str = "sk-chat-key-abcdefghijkl") -> Vault:
     vault = Vault([PlainFileBackend(tmp_path / "v.json")])
-    vault.set("WEFT_CHAT_API_KEY", value)
+    vault.set("HAIQ_CHAT_API_KEY", value)
     return vault
 
 
@@ -55,7 +55,7 @@ async def test_provider_success(tmp_path: Path) -> None:
         )
         return httpx.Response(200, json={"choices": [{"message": {"content": "  你好呀  "}}]})
 
-    cfg = ChatCfg(base_url="https://api.example.com/v1", api_key_ref="WEFT_CHAT_API_KEY")
+    cfg = ChatCfg(base_url="https://api.example.com/v1", api_key_ref="HAIQ_CHAT_API_KEY")
     provider = OpenAICompatChatProvider(_auth(_vault(tmp_path)), cfg, client=_client(handler))
     text = await provider.complete(
         [{"role": "user", "content": "hi"}],
@@ -170,8 +170,9 @@ def chat_cfg(tmp_path: Path) -> HaiqConfig:
         db_path=tmp_path / "data" / "haiq.db",
         secrets_dir=tmp_path / "secrets",
         log_level="CRITICAL",
-        plugins_enabled=["echo", "chat"],
-        plugin_config={"chat": {"ack_text": "🤔 思考中…"}},
+        plugins_enabled=["echo", "assistant"],
+        # command 模式 = 纯聊天：不出图、不做意图判断，行为完全可预期
+        plugin_config={"assistant": {"router_mode": "command"}},
         quota=QuotaCfg(enabled=True, per_user_per_day=50, per_channel_per_day=50, rate_per_user_per_min=100),
         policy=PolicyCfg(handle_timeout_seconds=5.0),
         media=MediaCfg(dir=tmp_path / "data" / "media"),
@@ -210,7 +211,6 @@ async def test_chat_command_replies(chat_cfg: HaiqConfig) -> None:
     try:
         await mock.inject(_event("/问 你好", "c1"))
         texts = mock.texts()
-        assert "🤔 思考中…" in texts, "应先 ack"
         assert any("模拟回复" in t for t in texts), "应回模型答案"
     finally:
         await app.shutdown()

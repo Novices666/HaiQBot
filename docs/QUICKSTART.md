@@ -78,13 +78,13 @@ uv run haiq webui token --generate     # 生成并写入 vault，命令会打印
 
 ```bash
 # 对话 / 生图密钥（按需，没有就跳过）
-uv run haiq secrets set WEFT_CHAT_API_KEY
-uv run haiq secrets set WEFT_IMAGE_API_KEY
+uv run haiq secrets set HAIQ_CHAT_API_KEY
+uv run haiq secrets set HAIQ_IMAGE_API_KEY
 ```
 
 `secrets set` 是**交互式输入、不回显、不进 shell history**。
 
-> vault 默认用 AES-256-GCM 加密，主口令从环境变量 `WEFT_VAULT_PASSPHRASE` 读。
+> vault 默认用 AES-256-GCM 加密，主口令从环境变量 `HAIQ_VAULT_PASSPHRASE` 读。
 > 没设就先用明文跑：`haiq.toml` 里 `[vault] enc = "none"`。
 > 想加密：`haiq secrets reencrypt`（会把现有条目重新加密并提示怎么设口令）。
 
@@ -136,7 +136,7 @@ NapCat 登录成功后，OneBot 配置才会真正生效。它写的 token 在�
 把里面的 token 录进 vault（**别贴到任何聊天窗口里**）：
 
 ```bash
-uv run haiq secrets set WEFT_ONEBOT_ACCESS_TOKEN
+uv run haiq secrets set HAIQ_ONEBOT_ACCESS_TOKEN
 ```
 
 确认 `haiq.toml` 的 OneBot 段：
@@ -146,7 +146,7 @@ uv run haiq secrets set WEFT_ONEBOT_ACCESS_TOKEN
 enabled = true
 mode = "client"                                  # 我们主动连 NapCat 的正向 WS
 url = "ws://127.0.0.1:3001"
-access_token_ref = "WEFT_ONEBOT_ACCESS_TOKEN"
+access_token_ref = "HAIQ_ONEBOT_ACCESS_TOKEN"
 image_transport = "auto"                         # 有本地文件就内嵌 base64，无需公网
 ```
 
@@ -160,7 +160,7 @@ uv run haiq run
 
 ```
 onebot_connected     url=ws://127.0.0.1:3001
-plugins_ready        loaded=['echo', 'help', 'admin', 'painter', 'chat', 'guard']
+plugins_ready        loaded=['echo', 'help', 'admin', 'assistant', 'guard']
 ```
 
 **关键一步：频道默认全关。** 不开频道，bot 收到消息什么都不做。
@@ -170,7 +170,7 @@ plugins_ready        loaded=['echo', 'help', 'admin', 'painter', 'chat', 'guard'
 或者用 CLI：
 
 ```bash
-uv run haiq channels enable onebot:group:<你的群号> --plugins echo,help,chat,painter
+uv run haiq channels enable onebot:group:<你的群号> --plugins echo,help,assistant
 uv run haiq channels verify          # 体检：有没有「配了却不生效」
 ```
 
@@ -202,7 +202,7 @@ uv run haiq channels verify          # 体检：有没有「配了却不生效�
 |---|---|
 | 群里 @ 了没反应 | 频道没开（默认全关）；或该群 `plugins` 列表里没有对应插件。跑 `haiq channels verify` |
 | 日志里 `插件来源 0 个` | `plugin_dirs` 写错位置（必须放在任何 `[section]` 前）或路径不存在（相对路径按**启动时工作目录**解析） |
-| `vault 已加密但未提供密码` | 没设 `WEFT_VAULT_PASSPHRASE`；或换过口令没重启（派生密钥是进程内缓存的） |
+| `vault 已加密但未提供密码` | 没设 `HAIQ_VAULT_PASSPHRASE`；或换过口令没重启（派生密钥是进程内缓存的） |
 | 文字正常、发图必失败 | **宿主机系统代理开着** → 容器内 NapCat 上传被劫走。先关代理。另外检查 NapCat 的 `baseTimeout` 是否 ≥ 60000 |
 | 二维码刷不出来 | `docker restart napcat`；或看 `docker logs napcat` 里的链接 |
 | 面板登录不了 | 令牌没生成：`haiq webui token --generate`；或 vault 口令变了导致读不到令牌 |

@@ -11,7 +11,7 @@ class ChatCfg(BaseModel):
     provider: str = "openai_compat"
     base_url: str = "https://api.openai.com/v1"
     model: str = "deepseek-v4.1-flash"
-    api_key_ref: str = "WEFT_CHAT_API_KEY"
+    api_key_ref: str = "HAIQ_CHAT_API_KEY"
     system_prompt: str = "你是一个简洁友好的群聊助手，用中文回答，控制在 150 字以内。"
     max_tokens: int = 800
     temperature: float = 0.7

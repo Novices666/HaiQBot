@@ -71,9 +71,9 @@ if existing_webui:
     ][0]["token"]
 
 vault.set("NAPCAT_WEBUI_TOKEN", webui_token)
-vault.set("WEFT_ONEBOT_ACCESS_TOKEN", onebot_token)
+vault.set("HAIQ_ONEBOT_ACCESS_TOKEN", onebot_token)
 
 print("\n=== WebUI 登录口令（仅 127.0.0.1:6099 可达）===")
 print(webui_token)
 print("\n=== OneBot access_token ===")
-print("已写入 haiq vault 键 WEFT_ONEBOT_ACCESS_TOKEN（文件在 napcat/config/onebot11.json）")
+print("已写入 haiq vault 键 HAIQ_ONEBOT_ACCESS_TOKEN（文件在 napcat/config/onebot11.json）")

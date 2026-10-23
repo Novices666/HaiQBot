@@ -431,7 +431,7 @@ class FileBackend:
         passphrase = self._passphrase()
 
         if not passphrase:
-            raise VaultError("vault 已加密但未提供密码：请设置环境变量 WEFT_VAULT_PASSPHRASE")
+            raise VaultError("vault 已加密但未提供密码：请设置环境变量 HAIQ_VAULT_PASSPHRASE")
 
         return hashlib.scrypt(
             str(passphrase).encode("utf-8"),
@@ -721,7 +721,7 @@ class Vault:
 
         """
 
-        ref = "WEFT_VAULT_PASSPHRASE"
+        ref = "HAIQ_VAULT_PASSPHRASE"
 
         return cls(
             [
@@ -744,7 +744,7 @@ class Vault:
 
         enc = str(getattr(vcfg, "enc", "aead") or "aead")
 
-        ref = str(getattr(vcfg, "passphrase_ref", "WEFT_VAULT_PASSPHRASE"))
+        ref = str(getattr(vcfg, "passphrase_ref", "HAIQ_VAULT_PASSPHRASE"))
 
         return cls(
             [

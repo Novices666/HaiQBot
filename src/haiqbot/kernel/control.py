@@ -18,6 +18,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from haiqbot.config import plugin_config_file
 from haiqbot.kernel.config_schema import APPLY_LABELS, GROUP_LABELS, SCHEMA, Field, read_value, write_value
 from haiqbot.kernel.config_schema import BY_PATH as _BY_PATH
 from haiqbot.kernel.config_writer import write_config
@@ -38,8 +39,8 @@ class ControlError(Exception):
 # 只暴露"是否已设置"的 vault 键（真值永不外带）
 # scope 以 "plugin:" 开头表示插件配置段（生图 / 对话已归插件所有）
 SECRET_REFS: tuple[tuple[str, str, str], ...] = (
-    ("plugin:painter", "api_key_ref", "生图 API Key"),
-    ("plugin:chat", "api_key_ref", "对话 API Key"),
+    ("plugin:assistant", "image_api_key_ref", "生图 API Key"),
+    ("plugin:assistant", "chat_api_key_ref", "对话 API Key"),
     ("onebot", "access_token_ref", "OneBot Access Token"),
     ("official", "app_secret_ref", "QQ 官方 AppSecret"),
     ("webui", "token_ref", "面板写操作令牌"),
@@ -361,15 +362,13 @@ def apply_plugin_config(runtime: Any, registry: Any, pid: str, changes: dict[str
     if persisted is None:
         persisted = {}
         runtime.config.plugin_config[pid] = persisted
-    # 先落盘（失败就整体放弃）
-    if runtime.config.config_path:
-        try:
-            write_config(
-                Path(runtime.config.config_path),
-                {f"plugins.{pid}.{k}": v for k, v in parsed.items()},
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise ControlError(f"配置写入失败，已放弃本次修改：{exc}", 500) from exc
+    # 先落盘（失败就整体放弃）。落点是插件自己的文件，主 toml 只留注册。
+    try:
+        target = plugin_config_file(runtime.config.data_dir, pid)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        write_config(target, dict(parsed))
+    except Exception as exc:  # noqa: BLE001
+        raise ControlError(f"配置写入失败，已放弃本次修改：{exc}", 500) from exc
     changed: list[dict[str, Any]] = []
     handle = registry.handles().get(pid)
     for key, value in parsed.items():

@@ -60,7 +60,7 @@ def test_doctor_returns_2_when_required_secret_missing(tmp_path: Path, monkeypat
     monkeypatch.setattr("haiqbot.cli.load_config", lambda _p: cfg)
     code = _doctor(None)
     out = capsys.readouterr().out
-    assert "painter.api_key" in out
+    assert "assistant.image_api_key" in out
     assert code == 2
 
 
@@ -73,7 +73,7 @@ def test_doctor_returns_0_or_1_when_secrets_present(tmp_path: Path, monkeypatch,
         webui=WebuiCfg(enabled=False, write_enabled=False),
     )
     vault = Vault.from_config(cfg)
-    for ref in ("WEFT_IMAGE_API_KEY", "WEFT_CHAT_API_KEY"):
+    for ref in ("HAIQ_IMAGE_API_KEY", "HAIQ_CHAT_API_KEY"):
         vault.set(ref, "v")
     monkeypatch.setattr("haiqbot.cli.load_config", lambda _p: cfg)
     code = _doctor(None)
@@ -113,7 +113,7 @@ def test_doctor_warns_on_plaintext_passphrase_file(tmp_path: Path, monkeypatch, 
         webui=WebuiCfg(enabled=False, write_enabled=False),
     )
     vault = Vault.from_config(cfg)
-    for ref in ("WEFT_IMAGE_API_KEY", "WEFT_CHAT_API_KEY", "WEFT_ONEBOT_ACCESS_TOKEN"):
+    for ref in ("HAIQ_IMAGE_API_KEY", "HAIQ_CHAT_API_KEY", "HAIQ_ONEBOT_ACCESS_TOKEN"):
         vault.set(ref, "v")
     (secrets / ".vault-pass.txt").write_text("x" * 43, encoding="utf-8")
 

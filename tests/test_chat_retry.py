@@ -7,14 +7,14 @@ from pathlib import Path
 
 import httpx
 import pytest
-from haiqbot_local_chat.config import ChatCfg
-from haiqbot_local_chat.providers.openai_compat import RETRYABLE_STATUS, OpenAICompatChatProvider
+from haiqbot_local_assistant.chat.config import ChatCfg
+from haiqbot_local_assistant.chat.providers.openai_compat import RETRYABLE_STATUS, OpenAICompatChatProvider
 
 from haiqbot.kernel.vault import PlainFileBackend, Vault
 from haiqbot.services.providers.base import ProviderError
 
 
-def _auth(vault, ref: str = "WEFT_CHAT_API_KEY"):
+def _auth(vault, ref: str = "HAIQ_CHAT_API_KEY"):
     """把 vault 适配成 provider 需要的鉴权头生成器。"""
 
     return lambda: {"Authorization": f"Bearer {vault.require(ref)}"}
@@ -24,10 +24,10 @@ def _provider(tmp_path: Path, handler, **cfg_kwargs) -> OpenAICompatChatProvider
 
     vault = Vault([PlainFileBackend(tmp_path / "v.json")])
 
-    vault.set("WEFT_CHAT_API_KEY", "sk-retry-test-1234567890")
+    vault.set("HAIQ_CHAT_API_KEY", "sk-retry-test-1234567890")
 
     base: dict = {
-        "api_key_ref": "WEFT_CHAT_API_KEY",
+        "api_key_ref": "HAIQ_CHAT_API_KEY",
         "retries": 2,
         "retry_backoff_seconds": 0.0,  # 测试不睡觉
     }

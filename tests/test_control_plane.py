@@ -57,17 +57,16 @@ def test_default_template_is_valid_toml_and_accepts_patches() -> None:
     parsed = tomllib.loads(dump_default_config())
     for section in ("media", "webui", "onebot", "official", "quota", "policy", "plugins"):
         assert section in parsed, f"模板缺少 [{section}]"
-    # 生图 / 对话的参数已归插件所有
-    for pid in ("painter", "chat"):
-        assert pid in parsed["plugins"], f"模板缺少 [plugins.{pid}]"
+    # 插件参数已外置：模板里一个 [plugins.<id>] 段都不该有
+    assert set(parsed["plugins"]) == {"enabled"}, "插件参数应在 data/plugins/<id>.toml"
+    assert "data/plugins/" in dump_default_config()
 
     patched = config_writer.set_many(
-        dump_default_config(), {"plugins.chat.model": "m2", "plugins.enabled": ["echo"]}
+        dump_default_config(), {"plugins.enabled": ["echo"], "log_level": "DEBUG"}
     )
     reread = tomllib.loads(patched)
-    assert reread["plugins"]["chat"]["model"] == "m2"
     assert reread["plugins"]["enabled"] == ["echo"]
-    assert reread["plugins"]["painter"]["model"], "其它 section 不应被破坏"
+    assert reread["log_level"] == "DEBUG"
 
 
 # -- 夹具 ------------------------------------------------------------------- #
@@ -82,9 +81,9 @@ def config_file(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def ctl(runtime: Runtime, vault: object, config_file: Path) -> Runtime:
-    runtime.config.webui = WebuiCfg(enabled=False, write_enabled=True, token_ref="WEFT_WEBUI_TOKEN")
+    runtime.config.webui = WebuiCfg(enabled=False, write_enabled=True, token_ref="HAIQ_WEBUI_TOKEN")
     runtime.config.config_path = config_file
-    vault.set("WEFT_WEBUI_TOKEN", TOKEN)  # type: ignore[attr-defined]
+    vault.set("HAIQ_WEBUI_TOKEN", TOKEN)  # type: ignore[attr-defined]
     return runtime
 
 
@@ -147,7 +146,7 @@ async def test_write_with_wrong_csrf_is_403(ui: object) -> None:
 
 async def test_write_is_rejected_when_vault_has_no_token(ui: object, ctl: Runtime) -> None:
     """库里没有令牌 → 登录拿不到会话，写操作一律 401。"""
-    ctl.vault.delete("WEFT_WEBUI_TOKEN")
+    ctl.vault.delete("HAIQ_WEBUI_TOKEN")
     async with await _client(ui) as client:
         wait = await client.post("/api/config", json={"chat.model": "x"}, headers=_auth())
         login = await client.post("/api/auth/login", json={"token": TOKEN})
@@ -181,17 +180,17 @@ async def test_reads_need_session(ui: object) -> None:
 
 
 async def test_config_get_exposes_no_secret_values(ui: object, ctl: Runtime) -> None:
-    ctl.config.plugin_config.setdefault("painter", {})["api_key_ref"] = "WEFT_IMAGE_API_KEY"
-    ctl.vault.set("WEFT_IMAGE_API_KEY", FAKE_API_KEY)
+    ctl.config.plugin_config.setdefault("assistant", {})["image_api_key_ref"] = "HAIQ_IMAGE_API_KEY"
+    ctl.vault.set("HAIQ_IMAGE_API_KEY", FAKE_API_KEY)
     async with await _client(ui) as client:
         resp = await client.get("/api/config")
 
     assert resp.status_code == 200
     assert FAKE_API_KEY not in resp.text, "密钥真值绝不能出现在面板接口里"
     body = resp.json()["data"]
-    painter_secret = next(s for s in body["secrets"] if s["path"] == "plugin:painter.api_key_ref")
-    assert painter_secret["set"] is True
-    assert painter_secret["ref"] == "WEFT_IMAGE_API_KEY"
+    image_secret = next(s for s in body["secrets"] if s["path"] == "plugin:assistant.image_api_key_ref")
+    assert image_secret["set"] is True
+    assert image_secret["ref"] == "HAIQ_IMAGE_API_KEY"
 
 
 async def test_config_get_lists_every_editable_field(ui: object) -> None:
@@ -255,10 +254,8 @@ async def test_config_post_applies_and_persists(ui: object, ctl: Runtime, config
     disk = tomllib.loads(config_file.read_text(encoding="utf-8"))
     assert disk["quota"]["per_user_per_day"] == 33
     assert disk["quota"]["enabled"] is False
-    # 插件段不能被顺手改掉
-    assert (
-        disk["plugins"]["chat"]["model"] == tomllib.loads(dump_default_config())["plugins"]["chat"]["model"]
-    )
+    # 插件配置不在主文件里（已外置到 data/plugins/<id>.toml）
+    assert set(disk["plugins"]) == {"enabled"}
 
 
 async def test_config_post_updates_shared_submodel(ui: object, ctl: Runtime) -> None:
@@ -366,11 +363,11 @@ def test_vault_sees_token_rotated_by_another_process(tmp_path: Path) -> None:
     path = tmp_path / "secrets" / "vault.bin"
     backend_cls = DpapiFileBackend if _dpapi_available() else PlainFileBackend
     live = backend_cls(path)  # 模拟「运行中的实例」
-    live.set("WEFT_WEBUI_TOKEN", "first-token")
+    live.set("HAIQ_WEBUI_TOKEN", "first-token")
 
     other = backend_cls(path)  # 模拟「CLI 那个独立进程」
-    other.set("WEFT_WEBUI_TOKEN", "second-token")
+    other.set("HAIQ_WEBUI_TOKEN", "second-token")
     os.utime(path, ns=(1, 1))  # 保证 mtime 一定变化
 
-    assert live.get("WEFT_WEBUI_TOKEN") == "second-token"
-    assert "WEFT_WEBUI_TOKEN" in live.keys()
+    assert live.get("HAIQ_WEBUI_TOKEN") == "second-token"
+    assert "HAIQ_WEBUI_TOKEN" in live.keys()

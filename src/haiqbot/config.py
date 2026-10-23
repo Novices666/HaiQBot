@@ -15,6 +15,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from haiqbot.core.errors import ConfigError
+from haiqbot.kernel.log import get_logger
+
+log = get_logger(__name__)
 
 DEFAULT_CONFIG_FILE = "haiq.toml"
 
@@ -61,24 +64,24 @@ class WebuiCfg(BaseModel):
     write_enabled: bool = True
     # 写操作令牌所在的 vault 键名（令牌真值只存 vault，绝不落配置文件）。
     # 该键在 vault 中不存在时，写操作一律 403，并提示用 `haiq webui token --generate` 生成。
-    token_ref: str = "WEFT_WEBUI_TOKEN"
+    token_ref: str = "HAIQ_WEBUI_TOKEN"
 
 
 class VaultCfg(BaseModel):
     """凭据存储。所有平台同一套实现 —— 不做平台区分。"""
 
-    # None = 用 HaiqConfig.secrets_dir（仍可被 WEFT_SECRETS_DIR 覆盖）
+    # None = 用 HaiqConfig.secrets_dir（仍可被 HAIQ_SECRETS_DIR 覆盖）
     dir: Path | None = None
     # aead = scrypt + AES-256-GCM（可迁移到任意机器）；none = 明文（显式降级）
     enc: str = "aead"
     # 密码所在的环境变量名。密码真值只在该环境变量里，不落配置文件。
-    passphrase_ref: str = "WEFT_VAULT_PASSPHRASE"
+    passphrase_ref: str = "HAIQ_VAULT_PASSPHRASE"
 
 
 class OfficialCfg(BaseModel):
     enabled: bool = False
     app_id: str | None = None
-    app_secret_ref: str = "WEFT_QQ_APP_SECRET"
+    app_secret_ref: str = "HAIQ_QQ_APP_SECRET"
     # intents 1<<25 覆盖 C2C_MESSAGE_CREATE 与 GROUP_AT_MESSAGE_CREATE
     intents: int = 1 << 25
     api_base: str = "https://api.sgroup.qq.com"
@@ -106,7 +109,7 @@ class OneBotCfg(BaseModel):
     # mode=sse：SSE 完整地址。留空 = {http_api_url}{sse_path}。
     # NapCat 的 HTTP API(3000) 与 SSE(3003) 是**两个端口**，这时必须显式填。
     sse_url: str = ""
-    access_token_ref: str = "WEFT_ONEBOT_ACCESS_TOKEN"
+    access_token_ref: str = "HAIQ_ONEBOT_ACCESS_TOKEN"
     self_id: str | None = None
     # 控制类 API（get_*）的超时
     api_timeout_seconds: float = 15.0
@@ -171,14 +174,14 @@ class HaiqConfig(BaseModel):
 
 
 def _env_override(raw: dict[str, Any]) -> dict[str, Any]:
-    """少量顶层字段支持 WEFT_* 环境变量覆盖，便于容器化部署。"""
-    if v := os.environ.get("WEFT_DATA_DIR"):
+    """少量顶层字段支持 HAIQ_* 环境变量覆盖，便于容器化部署。"""
+    if v := os.environ.get("HAIQ_DATA_DIR"):
         raw["data_dir"] = v
-    if v := os.environ.get("WEFT_LOG_LEVEL"):
+    if v := os.environ.get("HAIQ_LOG_LEVEL"):
         raw["log_level"] = v
-    if v := os.environ.get("WEFT_LOG_JSON"):
+    if v := os.environ.get("HAIQ_LOG_JSON"):
         raw["log_json"] = v.lower() in {"1", "true", "yes", "on"}
-    if v := os.environ.get("WEFT_SECRETS_DIR"):
+    if v := os.environ.get("HAIQ_SECRETS_DIR"):
         raw["secrets_dir"] = v
     return raw
 
@@ -291,7 +294,17 @@ def load_config(path: str | Path | None = None) -> HaiqConfig:
         enabled = plugins_table.pop("enabled", None)
         if isinstance(enabled, list):
             raw["plugins_enabled"] = enabled
-        raw["plugin_config"] = plugins_table
+        # 插件配置的主位置是 `data/plugins/<id>.toml`；主 toml 里的 `[plugins.<id>]`
+    # 只作为历史兼容（文件优先）。这样卸载插件 = 删目录 + 删一个文件，
+    # 主配置永远只剩两行注册信息。
+    file_cfg = _load_plugin_config_files(Path(raw.get("data_dir") or "data"))
+    for _pid in sorted(set(plugins_table) - set(file_cfg)):
+        log.warning(
+            "plugin_config_inline_deprecated",
+            plugin=_pid,
+            hint=f"把 [plugins.{_pid}] 搬到 data/plugins/{_pid}.toml（文件优先）",
+        )
+    raw["plugin_config"] = {**plugins_table, **file_cfg}
 
     raw = _env_override(raw)
     moved = _absorb_legacy_sections(raw)
@@ -318,6 +331,32 @@ def _toml_value(value: Any) -> str:
     if isinstance(value, (list, tuple)):
         return "[" + ", ".join(_toml_value(v) for v in value) + "]"
     return json.dumps(str(value), ensure_ascii=False)
+
+
+#: 插件自己的配置目录（相对 `data_dir`）。文件名就是插件 id：`data/plugins/<id>.toml`。
+PLUGIN_CONFIG_DIR = "plugins"
+
+
+def plugin_config_file(data_dir: str | Path, pid: str) -> Path:
+    """`data/plugins/<id>.toml` —— 插件配置的唯一落点。"""
+    return Path(data_dir) / PLUGIN_CONFIG_DIR / f"{pid}.toml"
+
+
+def _load_plugin_config_files(data_dir: str | Path) -> dict[str, dict[str, Any]]:
+    """读 `data/plugins/*.toml`。文件名 = 插件 id，内容是该插件的扁平 key/value。"""
+    out: dict[str, dict[str, Any]] = {}
+    base = Path(data_dir) / PLUGIN_CONFIG_DIR
+    if not base.is_dir():
+        return out
+    for path in sorted(base.glob("*.toml")):
+        try:
+            data = tomllib.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001 - 一个坏文件不该拖垮启动
+            log.warning("plugin_config_unreadable", plugin=path.stem, error=type(exc).__name__)
+            continue
+        if isinstance(data, dict) and data:
+            out[path.stem] = data
+    return out
 
 
 def _plugin_schemas() -> dict[str, list[dict[str, Any]]]:
@@ -358,6 +397,15 @@ def _render_plugin_sections() -> str:
             block.append(f"{key} = {_toml_value(field['default'])}")
         blocks.append("\n".join(block))
     return "\n\n".join(blocks)
+
+
+def _plugin_config_hint() -> str:
+    """模板里不再展开 `[plugins.<id>]`：插件参数放在 `data/plugins/<id>.toml`。"""
+    return (
+        "# 插件自己的参数**不在这里**：见 data/plugins/<插件id>.toml"
+        "\n"
+        "# 由面板「插件设置」或 `haiq plugin config` 写入；文件缺失就用插件声明的默认值。"
+    )
 
 
 def dump_default_config() -> str:
@@ -434,7 +482,7 @@ port = 8080
 # 是否允许通过面板改配置 / 启停插件。关掉即退回纯只读仪表盘。
 write_enabled = true
 # 写操作令牌的 vault 键名（令牌真值只存 vault），生成：haiq webui token --generate
-token_ref = "WEFT_WEBUI_TOKEN"
+token_ref = "HAIQ_WEBUI_TOKEN"
 
 # ── 插件配置 ───────────────────────────────────────────────────────────────
 # 生图 / 对话的**实现归插件所有**，参数也在这里，不再是内核的 [image] / [chat]。
@@ -445,7 +493,7 @@ __PLUGIN_SECTIONS__
 [official]
 enabled = false
 # app_id = ""
-app_secret_ref = "WEFT_QQ_APP_SECRET"
+app_secret_ref = "HAIQ_QQ_APP_SECRET"
 
 [onebot]
 enabled = false
@@ -455,12 +503,12 @@ webhook_path = "/onebot"                 # mode=http 收上报的路径
 webhook_secret_ref = ""                  # 留空 = 退化成校验 Bearer token
 sse_path = "/_events"                    # mode=sse 的事件流路径
 url = "ws://127.0.0.1:3001"
-access_token_ref = "WEFT_ONEBOT_ACCESS_TOKEN"
+access_token_ref = "HAIQ_ONEBOT_ACCESS_TOKEN"
 # 图片怎么发：auto（有本地文件就内嵌 base64，无需公网）/ base64 / url
 image_transport = "auto"
 """
     return (
-        tpl.replace("__PLUGIN_SECTIONS__", _render_plugin_sections())
+        tpl.replace("__PLUGIN_SECTIONS__", _plugin_config_hint())
         .replace("__PLUGINS_ENABLED__", enabled_literal)
         .replace("__PLUGIN_DIRS__", dirs_literal)
     )

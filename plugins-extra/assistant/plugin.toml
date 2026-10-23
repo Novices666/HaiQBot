@@ -1,0 +1,6 @@
+id = "assistant"
+name = "助手"
+version = "0.1.0"
+description = "对话 + 按需出图 + 内容审查（自带 image/chat 两套 provider）"
+api_version = 1
+isolation = "inline"

@@ -31,7 +31,7 @@ def test_passwd_rotates_and_never_prints_values(tmp_path: Path, monkeypatch, cap
     vdir.mkdir(parents=True)
     path = vdir / VAULT_FILENAME
     seed = FileBackend(path, enc="aead", passphrase=lambda: OLD)
-    seed.set("WEFT_IMAGE_API_KEY", "sk-do-not-leak")
+    seed.set("HAIQ_IMAGE_API_KEY", "sk-do-not-leak")
 
     # 常见路径：环境变量里就是旧口令，交互只问新口令
     monkeypatch.setenv(cfg.vault.passphrase_ref, OLD)
@@ -46,10 +46,10 @@ def test_passwd_rotates_and_never_prints_values(tmp_path: Path, monkeypatch, cap
 
     # 旧口令解不开
     with pytest.raises(VaultError):
-        FileBackend(path, enc="aead", passphrase=lambda: OLD).get("WEFT_IMAGE_API_KEY")
+        FileBackend(path, enc="aead", passphrase=lambda: OLD).get("HAIQ_IMAGE_API_KEY")
     # 新口令能读，值不变
     fresh = FileBackend(path, enc="aead", passphrase=lambda: NEW)
-    assert fresh.get("WEFT_IMAGE_API_KEY") == "sk-do-not-leak"
+    assert fresh.get("HAIQ_IMAGE_API_KEY") == "sk-do-not-leak"
     # 旧文件留成 .bak
     assert (vdir / (VAULT_FILENAME + ".bak")).is_file()
     # 不留半成品

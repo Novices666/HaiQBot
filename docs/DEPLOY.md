@@ -18,11 +18,11 @@
 ```bash
 uv sync --extra dev --extra official   # 官方平台需要 official extra
 uv run haiqbot init                       # 生成 haiq.toml + secrets/
-uv run haiq secrets set painter.api_key  # 生图密钥（交互式，不回显）
+uv run haiq secrets set assistant.image_api_key  # 生图密钥（交互式，不回显）
 uv run haiq doctor                     # 自检
 ```
 
-`haiq doctor` 必须看到 `凭据加密：aead（file）`；启动前一定先设好 `WEFT_VAULT_PASSPHRASE`。
+`haiq doctor` 必须看到 `凭据加密：aead（file）`；启动前一定先设好 `HAIQ_VAULT_PASSPHRASE`。
 
 ---
 
@@ -91,7 +91,7 @@ uv run python scripts/init_napcat.py
 它会做三件事：
 - 写 `.dev/napcat/config/webui.json`（WebUI 口令，仅本机可达）
 - 写 `.dev/napcat/config/onebot11.json`（OneBot WS 监听 3001，**带 access_token**）
-- 把两个 token 写进 haiq vault（`NAPCAT_WEBUI_TOKEN` / `WEFT_ONEBOT_ACCESS_TOKEN`）
+- 把两个 token 写进 haiq vault（`NAPCAT_WEBUI_TOKEN` / `HAIQ_ONEBOT_ACCESS_TOKEN`）
 
 **第二步：起容器**
 
@@ -138,7 +138,7 @@ docker logs napcat | grep -i websocket
 enabled = true
 mode = "client"
 url = "ws://127.0.0.1:3001"
-access_token_ref = "WEFT_ONEBOT_ACCESS_TOKEN"
+access_token_ref = "HAIQ_ONEBOT_ACCESS_TOKEN"
 ```
 
 ```bash
@@ -166,7 +166,7 @@ host = "127.0.0.1"                       # haiqbot 收上报的监听地址
 port = 3002
 webhook_path = "/onebot"
 webhook_secret_ref = ""                  # 填了就用 HMAC-SHA1 校验 X-Signature
-access_token_ref = "WEFT_ONEBOT_ACCESS_TOKEN"
+access_token_ref = "HAIQ_ONEBOT_ACCESS_TOKEN"
 
 # sse 模式示例（不需要入站端口）
 [onebot]
@@ -175,7 +175,7 @@ http_api_url = "http://127.0.0.1:3000"
 sse_path = "/_events"
 # NapCat 的 HTTP API 与 SSE 是两个端口（3000 / 3003）时必须显式写完整地址：
 sse_url = "http://127.0.0.1:3003/_events"
-access_token_ref = "WEFT_ONEBOT_ACCESS_TOKEN"
+access_token_ref = "HAIQ_ONEBOT_ACCESS_TOKEN"
 ```
 
 上报鉴权顺序：配了 `webhook_secret_ref` → 只认 `X-Signature: sha1=...`（HMAC-SHA1，签名对象是原始 body）；
@@ -243,7 +243,7 @@ NapCat 的 OneBot 网络配置在登录成功后才生效。先扫码登录。
 **Q: 二维码扫了没反应？**
 二维码 2 分钟过期。`docker restart napcat` 重新生成，或直接用 WebUI 里的。
 
-**Q: 群里只看到「🎨 排队中…」没有图，审计是 `painter unhandled`？**
+**Q: `/画图` 之后很久没动静，或者审计里看到 `assistant` 的相关失败？**
 OneBot 路线两个已知坑，都已在代码里修掉，若从旧版本升级请确认没跑着旧进程：
 1. **事件死锁** —— 收包循环 inline await 事件处理，处理里又要 `send_group_msg` 等回包，
    回包只能由同一循环读 → 死锁到 `api_timeout`。现已改为 `create_task` 异步派发。
@@ -275,8 +275,8 @@ OneBot 路线两个已知坑，都已在代码里修掉，若从旧版本升级�
 | 会话 Cookie | `haiq_session` |
 | CSRF 头 | `X-Haiq-CSRF` |
 
-**刻意没有改的东西**：vault 里的键名与口令环境变量仍是 `WEFT_*`（`WEFT_VAULT_PASSPHRASE`、
-`WEFT_WEBUI_TOKEN` …）。它们是**已经加密落盘的数据契约**，改名要重写 vault，收益为零。
+**刻意没有改的东西**：vault 里的键名与口令环境变量仍是 `HAIQ_*`（`HAIQ_VAULT_PASSPHRASE`、
+`HAIQ_WEBUI_TOKEN` …）。它们是**已经加密落盘的数据契约**，改名要重写 vault，收益为零。
 老库也能直接解：AEAD 的旧 AAD `weft.vault.v2` 仍在白名单里，下次写入自动升级成新 AAD。
 
 **开关体检**：`haiq channels verify` 会把「配了却不生效」的情况点出来（插件名拼错、

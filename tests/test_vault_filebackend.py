@@ -21,7 +21,7 @@ def _backend(path: Path, *, enc: str = "aead", pw: str | None = PASS) -> FileBac
 def test_aead_roundtrip_and_envelope(tmp_path: Path) -> None:
     path = tmp_path / "vault.json"
     b = _backend(path)
-    b.set("WEFT_IMAGE_API_KEY", "sk-abcdefghijklmnop")
+    b.set("HAIQ_IMAGE_API_KEY", "sk-abcdefghijklmnop")
     envelope = json.loads(path.read_text(encoding="utf-8"))
     assert envelope["v"] == 2
     assert envelope["enc"] == "aead"
@@ -29,7 +29,7 @@ def test_aead_roundtrip_and_envelope(tmp_path: Path) -> None:
     # 密文里不能出现明文
     assert "sk-abcdefghijklmnop" not in path.read_text(encoding="utf-8")
     # 换一个实例也能读回（说明不依赖进程内缓存）
-    assert _backend(path).get("WEFT_IMAGE_API_KEY") == "sk-abcdefghijklmnop"
+    assert _backend(path).get("HAIQ_IMAGE_API_KEY") == "sk-abcdefghijklmnop"
 
 
 def test_wrong_passphrase_raises(tmp_path: Path) -> None:
@@ -44,7 +44,7 @@ def test_missing_passphrase_raises_with_hint(tmp_path: Path) -> None:
     _backend(path).set("K", "v")
     with pytest.raises(VaultError) as exc:
         _backend(path, pw=None).get("K")
-    assert "WEFT_VAULT_PASSPHRASE" in str(exc.value)
+    assert "HAIQ_VAULT_PASSPHRASE" in str(exc.value)
 
 
 def test_cache_invalidated_by_external_write(tmp_path: Path) -> None:

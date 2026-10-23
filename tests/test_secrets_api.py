@@ -70,7 +70,7 @@ class FakeRuntime:
             quota=QuotaCfg(enabled=False),
         )
         # 面板令牌必须一直在：它是登录用的，不能被测试数据覆盖掉
-        base = {"WEFT_WEBUI_TOKEN": TOKEN}
+        base = {"HAIQ_WEBUI_TOKEN": TOKEN}
         if vault is not None:
             base.update(vault.values)
             vault.values = base
@@ -100,7 +100,7 @@ def _login(client: TestClient) -> str:
 
 def test_list_never_leaks_values(tmp_path: Path) -> None:
     """列表只有「已设置 / 未设置」，没有值。"""
-    vault = FakeVault({"WEFT_WEBUI_TOKEN": TOKEN, "WEFT_IMAGE_API_KEY": SECRET_VALUE})
+    vault = FakeVault({"HAIQ_WEBUI_TOKEN": TOKEN, "HAIQ_IMAGE_API_KEY": SECRET_VALUE})
     client = _client(tmp_path, runtime=FakeRuntime(vault=vault))
     _login(client)
 
@@ -113,24 +113,24 @@ def test_list_never_leaks_values(tmp_path: Path) -> None:
 
     rows = {row["key"]: row for row in payload["items"]}
     # 插件声明的槽位 + vault 里没被声明的裸键都要出现
-    assert "painter.api_key" in rows
-    assert "chat.api_key" in rows
-    assert "WEFT_WEBUI_TOKEN" in rows
+    assert "assistant.image_api_key" in rows
+    assert "assistant.chat_api_key" in rows
+    assert "HAIQ_WEBUI_TOKEN" in rows
     # 同一个物理键只出现一次：被槽位声明了就不再作为裸键重复列出
-    assert "WEFT_IMAGE_API_KEY" not in rows
-    assert rows["painter.api_key"]["ref"] == "WEFT_IMAGE_API_KEY"
-    assert rows["painter.api_key"]["set"] is True
+    assert "HAIQ_IMAGE_API_KEY" not in rows
+    assert rows["assistant.image_api_key"]["ref"] == "HAIQ_IMAGE_API_KEY"
+    assert rows["assistant.image_api_key"]["set"] is True
     assert all("value" not in row for row in payload["items"])
     assert payload["vault"]["enc"] == "none"
 
 
 def test_single_get_returns_value_and_audits_reveal(tmp_path: Path) -> None:
-    vault = FakeVault({"WEFT_IMAGE_API_KEY": SECRET_VALUE})
+    vault = FakeVault({"HAIQ_IMAGE_API_KEY": SECRET_VALUE})
     runtime = FakeRuntime(vault=vault)
     client = _client(tmp_path, runtime=runtime)
     _login(client)
 
-    resp = client.get("/api/secrets/painter.api_key")
+    resp = client.get("/api/secrets/assistant.image_api_key")
     assert resp.status_code == 200, resp.text
     data = resp.json()["data"]
     assert data["value"] == SECRET_VALUE
@@ -146,7 +146,7 @@ def test_missing_secret_reports_unset_without_audit(tmp_path: Path) -> None:
     client = _client(tmp_path, runtime=runtime)
     _login(client)
 
-    data = client.get("/api/secrets/painter.api_key").json()["data"]
+    data = client.get("/api/secrets/assistant.image_api_key").json()["data"]
     assert data["set"] is False
     assert data["value"] is None
     assert "webui:secret.reveal" not in runtime.audit.actions()
@@ -160,18 +160,18 @@ def test_write_then_delete(tmp_path: Path) -> None:
 
     resp = client.post(
         "/api/secrets",
-        json={"key": "painter.api_key", "value": SECRET_VALUE},
+        json={"key": "assistant.image_api_key", "value": SECRET_VALUE},
         headers={"X-Haiq-CSRF": csrf},
     )
     assert resp.status_code == 200, resp.text
-    assert vault.values["WEFT_IMAGE_API_KEY"] == SECRET_VALUE
+    assert vault.values["HAIQ_IMAGE_API_KEY"] == SECRET_VALUE
     assert "webui:secret.set" in runtime.audit.actions()
     assert SECRET_VALUE not in runtime.audit.details(), "审计里出现了密钥值"
 
-    resp = client.delete("/api/secrets/painter.api_key", headers={"X-Haiq-CSRF": csrf})
+    resp = client.delete("/api/secrets/assistant.image_api_key", headers={"X-Haiq-CSRF": csrf})
     assert resp.status_code == 200, resp.text
     assert resp.json()["data"]["removed"] is True
-    assert "WEFT_IMAGE_API_KEY" not in vault.values
+    assert "HAIQ_IMAGE_API_KEY" not in vault.values
 
 
 def test_write_accepts_raw_key_name(tmp_path: Path) -> None:
@@ -194,7 +194,7 @@ def test_empty_value_rejected(tmp_path: Path) -> None:
     csrf = _login(client)
     resp = client.post(
         "/api/secrets",
-        json={"key": "painter.api_key", "value": "  "},
+        json={"key": "assistant.image_api_key", "value": "  "},
         headers={"X-Haiq-CSRF": csrf},
     )
     assert resp.status_code == 400

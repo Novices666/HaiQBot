@@ -35,27 +35,27 @@ def _reply() -> Reply:
 
 async def test_live_config_shares_storage_with_runtime(runtime: Runtime) -> None:
     registry = Registry(runtime, storage_root=Path(runtime.config.data_dir) / "plugins")
-    handle = await registry.load("chat")
+    handle = await registry.load("assistant")
     # ① 运行期改配置 → 插件立刻看见（以前是拷贝，看不见）
-    runtime.config.plugin_config.setdefault("chat", {})["ack_text"] = "改过了"
-    assert handle.context.config["ack_text"] == "改过了"
-    assert handle.plugin.config["ack_text"] == "改过了"
+    runtime.config.plugin_config.setdefault("assistant", {})["chat_temperature"] = 0.42
+    assert handle.context.config["chat_temperature"] == 0.42
+    assert handle.plugin.config["chat_temperature"] == 0.42
     # ② 插件自己写 → 回到同一份存储
     handle.context.config["probe"] = 7
-    assert runtime.config.plugin_config["chat"]["probe"] == 7
+    assert runtime.config.plugin_config["assistant"]["probe"] == 7
     # ③ 删掉也同步
     del handle.context.config["probe"]
-    assert "probe" not in runtime.config.plugin_config["chat"]
+    assert "probe" not in runtime.config.plugin_config["assistant"]
 
 
 async def test_live_config_behaves_like_a_mapping(runtime: Runtime) -> None:
     registry = Registry(runtime, storage_root=Path(runtime.config.data_dir) / "plugins")
-    handle = await registry.load("chat")
+    handle = await registry.load("assistant")
     cfg = handle.context.config
-    assert dict(cfg) == dict(runtime.config.plugin_config.get("chat", {}))
-    assert "ack_text" in cfg or cfg.get("ack_text") is None
+    assert dict(cfg) == dict(runtime.config.plugin_config.get("assistant", {}))
+    assert "chat_temperature" in cfg or cfg.get("chat_temperature") is None
     assert isinstance(cfg.get("missing", "fallback"), str)
-    assert len(cfg) == len(runtime.config.plugin_config.get("chat", {}))
+    assert len(cfg) == len(runtime.config.plugin_config.get("assistant", {}))
 
 
 # -- 2. 请求上下文 ---------------------------------------------------------- #

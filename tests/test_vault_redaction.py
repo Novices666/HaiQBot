@@ -36,14 +36,14 @@ def test_plain_backend_roundtrip(tmp_path: Path) -> None:
 def test_env_backend_readonly() -> None:
     import os
 
-    os.environ["WEFT_TEST_KEY"] = "from-env"
+    os.environ["HAIQ_TEST_KEY"] = "from-env"
     try:
         vault = Vault([EnvBackend()])
-        assert vault.get("WEFT_TEST_KEY") == "from-env"
+        assert vault.get("HAIQ_TEST_KEY") == "from-env"
         with pytest.raises(VaultError):
-            vault.set("WEFT_TEST_KEY", "x")
+            vault.set("HAIQ_TEST_KEY", "x")
     finally:
-        os.environ.pop("WEFT_TEST_KEY", None)
+        os.environ.pop("HAIQ_TEST_KEY", None)
 
 
 def test_require_raises_with_hint(tmp_path: Path) -> None:

@@ -19,8 +19,8 @@ services:
     env_file:
       - .env
     environment:
-      WEFT_DATA_DIR: /data
-      WEFT_SECRETS_DIR: /secrets
+      HAIQ_DATA_DIR: /data
+      HAIQ_SECRETS_DIR: /secrets
       PYTHONUNBUFFERED: "1"
     volumes:
       - ./data:/data

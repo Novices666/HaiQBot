@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from haiqbot_local_painter import _safe_reason
+from haiqbot_local_assistant.util import safe_reason
 
 from haiqbot.config import HaiqConfig
 from haiqbot.core.errors import MediaSendError
@@ -37,11 +37,11 @@ async def test_media_send_error_is_not_retried():
 
 def test_safe_reason_masks_secrets():
     err = RuntimeError("provider 401: key=sk-live-abcdef123456&token=abc Bearer xyz123")
-    text = _safe_reason(err)
+    text = safe_reason(err)
     assert "sk-live" not in text
     assert "abc123" not in text
     assert text.startswith("RuntimeError:")
 
 
 def test_safe_reason_handles_empty_message():
-    assert _safe_reason(ValueError("")) == "ValueError"
+    assert safe_reason(ValueError("")) == "ValueError"

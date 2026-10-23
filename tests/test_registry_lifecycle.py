@@ -15,7 +15,7 @@ async def test_builtin_plugin_discovered_and_loaded(runtime: Runtime) -> None:
     registry = Registry(runtime, storage_root=Path(runtime.config.data_dir) / "plugins")
     found = registry.discover()
     assert "echo" in found
-    assert "painter" in found
+    assert "assistant" in found
     handle = await registry.load("echo")
     assert handle.manifest.id == "echo"
     assert handle.rules, "echo 应该注册了至少一条规则"
@@ -43,9 +43,10 @@ async def test_services_granted_by_manifest(runtime: Runtime) -> None:
     registry = Registry(runtime, storage_root=Path(runtime.config.data_dir) / "plugins")
     echo = await registry.load("echo")
     assert echo.context.services == {}, "echo 没有声明任何服务，不该拿到句柄"
-    painter = await registry.load("painter")
-    # painter 自己提供 image:generate 也自己消费，句柄必须到位
-    assert "image:generate" in painter.context.services
+    assistant = await registry.load("assistant")
+    # assistant 自己提供两个服务也自己消费，两个句柄都必须到位
+    assert "image:generate" in assistant.context.services
+    assert "llm:chat" in assistant.context.services
     # 越权取服务仍然是明确的错误，不是 None
     with pytest.raises(CapabilityDenied):
         echo.context.service("image:generate")

@@ -11,8 +11,8 @@ Group=haiqbot
 # 仓库路径按实际修改
 WorkingDirectory=/opt/haiqbot
 Environment=PYTHONUNBUFFERED=1
-Environment=WEFT_DATA_DIR=/var/lib/haiqbot
-Environment=WEFT_SECRETS_DIR=/etc/haiqbot/secrets
+Environment=HAIQ_DATA_DIR=/var/lib/haiqbot
+Environment=HAIQ_SECRETS_DIR=/etc/haiqbot/secrets
 
 # 凭据通过 EnvironmentFile 注入（chmod 600，属主 haiqbot）
 EnvironmentFile=-/etc/haiqbot/haiqbot.env

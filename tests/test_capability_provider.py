@@ -290,7 +290,7 @@ CAPTURED = {}
 class Rec(Plugin):
     id = "rec"
     provides = {"image:generate": "build"}
-    secrets = {"api_key": SecretSlot(label="K", ref="WEFT_IMAGE_API_KEY")}
+    secrets = {"api_key": SecretSlot(label="K", ref="HAIQ_IMAGE_API_KEY")}
 
     def build(self, pctx):
         CAPTURED["plugin_id"] = pctx.plugin_id
@@ -302,10 +302,10 @@ class Rec(Plugin):
 """,
     )
     runtime.config.plugin_dirs = [root]
-    runtime.config.plugin_config["rec"] = {"api_key_ref": "WEFT_IMAGE_API_KEY"}
+    runtime.config.plugin_config["rec"] = {"api_key_ref": "HAIQ_IMAGE_API_KEY"}
     reg = Registry(runtime, storage_root=tmp_path / "storage")
     await reg.load("rec")
     captured = sys.modules["haiqbot_local_rec"].CAPTURED
     assert captured["plugin_id"] == "rec"
-    assert captured["config"]["api_key_ref"] == "WEFT_IMAGE_API_KEY"
+    assert captured["config"]["api_key_ref"] == "HAIQ_IMAGE_API_KEY"
     assert "has_media" in captured

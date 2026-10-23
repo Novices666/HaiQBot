@@ -29,7 +29,7 @@ GET  /api/auth/session                 → 当前会话信息（前端启动时�
 ```
 
 - Cookie：`HttpOnly` + `SameSite=Lax` + `Path=/`，TTL 12h；HTTPS（或反代 `X-Forwarded-Proto: https`）才加 `Secure`
-- 令牌：vault 的 `webui.token_ref`（默认 `WEFT_WEBUI_TOKEN`），**每次请求现取** → `haiq webui token --generate` 立即生效，旧会话自动失效
+- 令牌：vault 的 `webui.token_ref`（默认 `HAIQ_WEBUI_TOKEN`），**每次请求现取** → `haiq webui token --generate` 立即生效，旧会话自动失效
 - 登录限速：同 IP 60 秒内 5 次失败 → 429
 - 未配令牌时登录返回 503 `token_missing`（**不是**免登录）
 

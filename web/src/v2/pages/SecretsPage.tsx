@@ -325,7 +325,7 @@ export default function SecretsPage() {
             <Input
               value={editing?.key ?? ""}
               disabled={!editing?.isNew}
-              placeholder="painter.api_key 或 WEFT_XXX"
+              placeholder="painter.api_key 或 HAIQ_XXX"
               onChange={(event) => setEditing((prev) => (prev ? { ...prev, key: event.target.value } : prev))}
             />
           </div>

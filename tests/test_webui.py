@@ -147,7 +147,7 @@ class FakeRuntime:
 
         self.store = FakeStore()
 
-        self.vault = FakeVault({} if token is None else {"WEFT_WEBUI_TOKEN": token})
+        self.vault = FakeVault({} if token is None else {"HAIQ_WEBUI_TOKEN": token})
 
         self.audit = FakeAudit()
 
@@ -195,7 +195,7 @@ class FakeRegistry:
                 "version": "0.1.0",
                 "capabilities": [],
                 "rules": ["echo:/echo"],
-                "secrets": {"api_key": {"label": "API Key", "required": False, "ref": "WEFT_WEBUI_TOKEN"}},
+                "secrets": {"api_key": {"label": "API Key", "required": False, "ref": "HAIQ_WEBUI_TOKEN"}},
             }
         ]
 
@@ -467,7 +467,7 @@ def test_plugins_list_and_commands(tmp_path: Path) -> None:
 
     assert rows[0]["commands"][0]["command"] == "/echo"
 
-    assert rows[0]["secrets"][0]["ref"] == "WEFT_WEBUI_TOKEN"
+    assert rows[0]["secrets"][0]["ref"] == "HAIQ_WEBUI_TOKEN"
 
     # set 现在来自 vault 的真实状态，而不是插件自报的标记
 

@@ -144,19 +144,19 @@ def test_slot_index_covers_shipped_plugins() -> None:
     from haiqbot.cli import _slot_index
 
     index = _slot_index()
-    assert "painter.api_key" in index
-    assert "chat.api_key" in index
-    assert index["painter.api_key"]["slot"].ref == "WEFT_IMAGE_API_KEY"
-    assert index["chat.api_key"]["slot"].ref == "WEFT_CHAT_API_KEY"
+    assert "assistant.image_api_key" in index
+    assert "assistant.chat_api_key" in index
+    assert index["assistant.image_api_key"]["slot"].ref == "HAIQ_IMAGE_API_KEY"
+    assert index["assistant.chat_api_key"]["slot"].ref == "HAIQ_CHAT_API_KEY"
 
 
 def test_resolve_target_accepts_slot_and_raw_key(tmp_path: Path) -> None:
     from haiqbot.cli import _resolve_target
 
     cfg = HaiqConfig(data_dir=tmp_path / "d", db_path=tmp_path / "d" / "w.db")
-    physical, shown = _resolve_target(cfg, "painter.api_key")
-    assert physical == "WEFT_IMAGE_API_KEY"
-    assert shown == "painter.api_key"
+    physical, shown = _resolve_target(cfg, "assistant.image_api_key")
+    assert physical == "HAIQ_IMAGE_API_KEY"
+    assert shown == "assistant.image_api_key"
     assert _resolve_target(cfg, "RAW_KEY") == ("RAW_KEY", "RAW_KEY")
 
 
@@ -166,6 +166,6 @@ def test_resolve_target_honours_override(tmp_path: Path) -> None:
     cfg = HaiqConfig(
         data_dir=tmp_path / "d",
         db_path=tmp_path / "d" / "w.db",
-        plugin_config={"painter": {"api_key_ref": "vendor.shared"}},
+        plugin_config={"assistant": {"image_api_key_ref": "vendor.shared"}},
     )
-    assert _resolve_target(cfg, "painter.api_key")[0] == "vendor.shared"
+    assert _resolve_target(cfg, "assistant.image_api_key")[0] == "vendor.shared"

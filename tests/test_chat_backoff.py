@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from haiqbot_local_chat.config import ChatCfg
-from haiqbot_local_chat.providers.openai_compat import MAX_BACKOFF_SECONDS, backoff_delay
+from haiqbot_local_assistant.chat.config import ChatCfg
+from haiqbot_local_assistant.chat.providers.openai_compat import MAX_BACKOFF_SECONDS, backoff_delay
 
 
 def test_exponential_growth() -> None:

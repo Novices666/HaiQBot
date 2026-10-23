@@ -30,7 +30,7 @@ Write-Host '=== 2/3 输入刚才的密码（仅用于本次验证，不落盘）
 $secure = Read-Host -AsSecureString 'vault 密码'
 $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
 try {
-    $env:WEFT_VAULT_PASSPHRASE = [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+    $env:HAIQ_VAULT_PASSPHRASE = [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
 } finally {
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
 }
@@ -51,8 +51,8 @@ switch ($doctorCode) {
 
 Write-Host ''
 Write-Host '别忘了把这个密码配置到服务环境（否则下次启动读不到凭据）：' -ForegroundColor Yellow
-Write-Host '  Windows NSSM : nssm set haiqbot AppEnvironmentExtra WEFT_VAULT_PASSPHRASE=<密码>'
-Write-Host '  Linux systemd: /etc/haiqbot/env 写 WEFT_VAULT_PASSPHRASE=<密码>，chmod 600'
-Write-Host '  本次会话临时: $env:WEFT_VAULT_PASSPHRASE = "<密码>"'
+Write-Host '  Windows NSSM : nssm set haiqbot AppEnvironmentExtra HAIQ_VAULT_PASSPHRASE=<密码>'
+Write-Host '  Linux systemd: /etc/haiqbot/env 写 HAIQ_VAULT_PASSPHRASE=<密码>，chmod 600'
+Write-Host '  本次会话临时: $env:HAIQ_VAULT_PASSPHRASE = "<密码>"'
 
-$env:WEFT_VAULT_PASSPHRASE = $null
+$env:HAIQ_VAULT_PASSPHRASE = $null

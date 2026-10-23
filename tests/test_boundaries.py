@@ -22,7 +22,7 @@ ALL_PLUGIN_DIRS = [FRAMEWORK_PLUGINS_DIR, EXTRA_PLUGINS_DIR]
 SHIPPED_PLUGIN_IDS = {"echo", "help"}
 
 #: 自有插件 —— 不属于框架，谁想要谁自己接（见 plugins-extra/README.md）。
-EXTRA_PLUGIN_IDS = {"admin", "chat", "guard", "painter"}
+EXTRA_PLUGIN_IDS = {"admin", "assistant", "guard"}
 
 # 历史包袱：这里曾经是内置插件的家。留着这个名字就会被误认为还能放插件。
 FORBIDDEN_IN_KERNEL = "builtin_plugins"
