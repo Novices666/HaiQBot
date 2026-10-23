@@ -7,7 +7,10 @@ log_json = false
 # 本地目录插件。必须写在任何 [section] 之前 —— 写在段内会变成段子键，
 # 被静默忽略（表现是插件全部消失、且没有任何报错）。
 # 相对路径按启动时的工作目录解析，所以起服务前先 cd 到项目根。
-plugin_dirs = ["plugins"]
+# 两个目录：`plugins/` = 框架自带的最小集（echo / help），谁都有；
+# `plugins-extra/` = 自己的插件（painter / chat / guard / admin），不属于框架。
+# 要把自有插件整包搬走，删掉第二个路径即可。
+plugin_dirs = ["plugins", "plugins-extra"]
 
 [plugins]
 enabled = ["echo", "help", "admin", "painter", "chat", "guard"]

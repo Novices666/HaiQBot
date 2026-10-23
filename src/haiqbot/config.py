@@ -148,8 +148,10 @@ class HaiqConfig(BaseModel):
 
     # 内核不认识任何具体插件：默认一个都不启用，由 haiq.toml 显式列出。
     plugins_enabled: list[str] = Field(default_factory=list)
-    # 本地目录插件（含随仓库分发的 plugins/）。相对路径按进程工作目录解析。
-    plugin_dirs: list[Path] = Field(default_factory=lambda: [Path("plugins")])
+    # 本地目录插件：`plugins/` 是框架目录，`plugins-extra/` 是你自己的目录。
+    # 不存在的目录会被静默跳过，所以全新环境只建 `plugins/` 也能跑。
+    # 相对路径按进程工作目录解析。
+    plugin_dirs: list[Path] = Field(default_factory=lambda: [Path("plugins"), Path("plugins-extra")])
     # 每个插件的参数，取自 haiq.toml 的 [plugins.<id>]
     plugin_config: dict[str, dict[str, Any]] = Field(default_factory=dict)
 

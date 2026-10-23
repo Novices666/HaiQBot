@@ -28,11 +28,15 @@ isolation = "inline"
 capabilities = []
 ```
 
-把目录放进 `haiq.toml` 的 `plugin_dirs` 指向的地方（默认是项目根的 `plugins/`）。
+把目录放进 `haiq.toml` 的 `plugin_dirs` 指向的地方。默认是两个（不存在的会被静默跳过）：
 
-**内核里不放插件。** `src/haiqbot/` 下没有任何插件代码；随仓库分发的 6 个插件也在
-`plugins/` 里，和你自己写的位置、加载方式完全一样 —— 所以「写插件」不需要碰内核，
-也不需要重新安装框架。
+| 目录 | 放什么 | 谁维护 |
+|---|---|---|
+| `plugins/` | 框架自带的最小集：`echo`（回显）、`help`（列命令） | 框架，升级时整目录替换 |
+| `plugins-extra/` | **你自己的**插件 | 你，框架升级不会碰 |
+
+**内核里不放插件。** `src/haiqbot/` 下没有任何插件代码；上面两个目录里的插件走完全同一条
+加载路径（`source=local`），所以「写插件」不需要碰内核，也不需要重新安装框架。
 
 两个会「静默失效」的坑，踩了不会报错，只会表现为插件全没了：
 
@@ -44,14 +48,26 @@ capabilities = []
 
 ## 从写代码到跑起来（本地目录开发循环）
 
-1. 建目录：
+**最快的方式是一条命令**（建目录 + 写清单 + 加进 `enabled` 一次做完）：
+
+```powershell
+haiq plugin new hello
+```
+
+它会在 `plugins/` 下生成 `hello/{__init__.py,plugin.toml}`，里面已经有一个能跑的
+`@on_command("hello")`，并把 `hello` 写进 `[plugins] enabled`。想放到自己的目录就加
+`--dir plugins-extra`。
+
+手动创建则要两步：
+
+1. 建目录（自己的插件放 `plugins-extra/`）：
 
    ```
-   plugins/hello/__init__.py
-   plugins/hello/plugin.toml
+   plugins-extra/hello/__init__.py
+   plugins-extra/hello/plugin.toml
    ```
 
-2. 把 `hello` 加进 `haiq.toml` 的 `[plugins] enabled`（`plugin_dirs` 已指向 `plugins/`）。
+2. 把 `hello` 加进 `haiq.toml` 的 `[plugins] enabled`。
 
 3. 重启 `haiq run`。日志里应该出现：
 
@@ -528,17 +544,22 @@ hello = "myplugin:Hello"
 
 装好后 `haiq.toml` 的 `plugins.enabled` 里加上 `"hello"` 即可。
 
-## 随仓库分发的插件（`plugins/`）
+## 仓库里的插件：框架最小集 vs 你自己的
 
-下面 6 个插件在仓库根的 `plugins/` 里，和第三方插件同一条加载路径。
+**框架只带两个最小插件**，在 `plugins/` 里。判断标准：陌生人装好框架、不接任何外部
+服务，是否仍然想要它？答案是「是」的才留在框架目录。
 
-| 插件 | 提供的服务 | 订阅的服务 / 设施 | 凭据槽位 | 命令 |
-|---|---|---|---|---|
-| `painter` | `image:generate` v1（`generate`） | `image:generate`（自用）、`storage:media` | `painter.api_key` → `WEFT_IMAGE_API_KEY` | `/画图` |
-| `chat` | `llm:chat` v1（`chat`） | `kv`、`llm:chat`（自用） | `chat.api_key` → `WEFT_CHAT_API_KEY` | `/问`、`@机器人`、`/重置对话` |
-| `echo` | — | — | — | `/echo` |
-| `help` | — | — | — | `/help` |
-| `admin` | — | — | — | `/plugins`、`/status`（需 ADMIN） |
+| 插件 | 目录 | 提供的服务 | 订阅的服务 / 设施 | 凭据槽位 | 命令 |
+|---|---|---|---|---|---|
+| `echo` | `plugins/` | — | — | — | `/echo` |
+| `help` | `plugins/` | — | — | — | `/help` |
+| `painter` | `plugins-extra/` | `image:generate` v1（`generate`） | `image:generate`（自用）、`storage:media` | `painter.api_key` → `WEFT_IMAGE_API_KEY` | `/画图` |
+| `chat` | `plugins-extra/` | `llm:chat` v1（`chat`） | `kv`、`llm:chat`（自用） | `chat.api_key` → `WEFT_CHAT_API_KEY` | `/问`、`@机器人`、`/重置对话` |
+| `guard` | `plugins-extra/` | — | `moderation` | — | 刷屏限流 / 广告过滤 |
+| `admin` | `plugins-extra/` | — | — | — | `/plugins`、`/status`（需 ADMIN） |
+
+右边四个**不属于框架**：它们绑定具体厂商的 API Key，或写死了我自己的取舍（限流阈值、
+违禁词表）。`plugins-extra/README.md` 说明了怎么整包搬走。
 
 槽位名写法是 `<插件 id>.<槽位名>`，例如 `haiq secrets set painter.api_key`。
 
@@ -547,7 +568,7 @@ hello = "myplugin:Hello"
 插件的**配置模型**和**厂商实现**都归插件自己，内核不认识"生图"或"对话"：
 
 ```
-plugins/painter/
+plugins-extra/painter/
   __init__.py          # Plugin 子类（声明 secrets / provides / config_schema）
   config.py            # ImageCfg（Pydantic，字段全是生图语义）
   broker.py            # ImageBroker（业务编排）

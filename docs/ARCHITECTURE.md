@@ -161,9 +161,9 @@ Windows「Internet 选项 → 局域网设置」里的代理会被 `httpx`（`tr
 | `haiqbot/kernel/secret_index.py` | 凭据槽位索引（CLI 与面板共用） |
 | `haiqbot/kernel/channel_control.py` | 频道开关读写与体检（识别 5 类静默失效） |
 | `haiqbot/kernel/log_ring.py` | 面板日志环形缓冲（先脱敏再入缓冲） |
-| `plugins/painter/broker.py` | 唯一生图出网口（`image:generate` 的提供者） |
-| `plugins/chat/broker.py` | 唯一对话出网口（`llm:chat` 的提供者） |
-| `plugins/<id>/providers/` | 厂商实现（归插件所有） |
+| `plugins-extra/painter/broker.py` | 唯一生图出网口（`image:generate` 的提供者） |
+| `plugins-extra/chat/broker.py` | 唯一对话出网口（`llm:chat` 的提供者） |
+| `plugins-extra/<id>/providers/` | 厂商实现（归插件所有） |
 | `haiqbot/services/providers/base.py` | 通用 provider 类型（`ProviderError` / `ImageProvider`） |
 | `haiqbot/services/media_store.py` | 图片中转与 GC |
 | `haiqbot/app.py` | 装配 + 管线 + 生命周期 |

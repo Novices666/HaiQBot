@@ -70,13 +70,17 @@ uv run haiq webui token --generate   # 生成并写入 vault
 
 ```
 HaiQBot/
-├── plugins/                 ← 所有插件都在这（随仓库分发的 6 个也在这里）
-│   ├── echo/  __init__.py  plugin.toml
-│   ├── help/  admin/  painter/  chat/  guard/
-│   └── <你自己的插件>/       ← 新增插件就放这
+├── plugins/                 ← 框架最小集：echo（回显）、help（列命令）
+│   └── echo/  __init__.py  plugin.toml
+├── plugins-extra/           ← 你自己的插件（框架升级不会碰）
+│   └── <你的插件>/           ← haiq plugin new <id> --dir plugins-extra
 ├── src/haiqbot/             ← 内核，没有插件代码
 └── haiq.toml                ← plugin_dirs + [plugins] enabled
 ```
+
+两个目录都在 `plugin_dirs` 里，不存在的会被静默跳过 —— 全新环境只建 `plugins/` 也能跑。
+框架自带的只有 `echo` / `help`；生图、对话、群管、风控这些绑定具体 API Key 的插件在
+`plugins-extra/`，不属于框架（见 [plugins-extra/README.md](plugins-extra/README.md)）。
 
 最小插件就两个文件：
 

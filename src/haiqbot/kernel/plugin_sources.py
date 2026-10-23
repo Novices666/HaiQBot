@@ -23,10 +23,13 @@ log = get_logger(__name__)
 ENTRY_GROUP = "haiqbot.plugins"
 # 没配置 `plugin_dirs` 时扫这里。相对路径按**进程工作目录**解析。
 DEFAULT_PLUGIN_DIR = Path("plugins")
+#: 你自己的插件放这里 —— 与框架目录分开，升级/替换框架时互不干扰。
+EXTRA_PLUGIN_DIR = Path("plugins-extra")
 
 
 def default_plugin_dirs() -> list[Path]:
-    return [DEFAULT_PLUGIN_DIR]
+    """默认扫两个目录：框架目录 + 你自己的目录（不存在的会被静默跳过）。"""
+    return [DEFAULT_PLUGIN_DIR, EXTRA_PLUGIN_DIR]
 
 
 def entry_point_map(group: str = ENTRY_GROUP) -> dict[str, str]:

@@ -14,8 +14,15 @@ from haiqbot.config import HaiqConfig
 
 PKG_ROOT = Path(haiqbot.__file__).parent
 REPO_ROOT = PKG_ROOT.parent.parent
-PLUGINS_DIR = REPO_ROOT / "plugins"
-SHIPPED_PLUGIN_IDS = {"echo", "help", "admin", "painter", "chat", "guard"}
+FRAMEWORK_PLUGINS_DIR = REPO_ROOT / "plugins"
+EXTRA_PLUGINS_DIR = REPO_ROOT / "plugins-extra"
+ALL_PLUGIN_DIRS = [FRAMEWORK_PLUGINS_DIR, EXTRA_PLUGINS_DIR]
+
+#: 框架自带的最小集 —— 判断标准：陌生人装好、不接任何外部服务，是否仍然想要它。
+SHIPPED_PLUGIN_IDS = {"echo", "help"}
+
+#: 自有插件 —— 不属于框架，谁想要谁自己接（见 plugins-extra/README.md）。
+EXTRA_PLUGIN_IDS = {"admin", "chat", "guard", "painter"}
 
 # 历史包袱：这里曾经是内置插件的家。留着这个名字就会被误认为还能放插件。
 FORBIDDEN_IN_KERNEL = "builtin_plugins"
@@ -53,14 +60,32 @@ def test_default_config_assumes_no_plugins() -> None:
     """开箱配置：不启用任何插件，只声明去哪找。"""
     cfg = HaiqConfig()
     assert cfg.plugins_enabled == []
-    assert [Path(p).as_posix() for p in cfg.plugin_dirs] == ["plugins"]
+    assert [Path(p).as_posix() for p in cfg.plugin_dirs] == ["plugins", "plugins-extra"]
 
 
 def test_shipped_plugins_live_outside_kernel() -> None:
-    """随仓库分发的插件在 plugins/ 里，各自带 plugin.toml。"""
-    assert PLUGINS_DIR.is_dir(), f"缺少插件目录：{PLUGINS_DIR}"
-    missing = sorted(pid for pid in SHIPPED_PLUGIN_IDS if not (PLUGINS_DIR / pid / "plugin.toml").is_file())
+    """框架自带的最小集在 `plugins/` 里，各自带 plugin.toml。"""
+    assert FRAMEWORK_PLUGINS_DIR.is_dir(), f"缺少插件目录：{FRAMEWORK_PLUGINS_DIR}"
+    missing = sorted(
+        pid for pid in SHIPPED_PLUGIN_IDS if not (FRAMEWORK_PLUGINS_DIR / pid / "plugin.toml").is_file()
+    )
     assert not missing, f"这些插件缺 plugin.toml：{missing}"
+
+
+def test_personal_plugins_are_not_in_framework_dir() -> None:
+    """个人集成不许混进 `plugins/` —— 框架自带的目录只放最小集。
+
+    这条是「内置插件瘦身」的防回潮钉子：以后往 `plugins/` 里加任何绑定外部服务
+    或个人取舍的插件，这里会立刻红。
+    """
+    strays = sorted(
+        pid for pid in EXTRA_PLUGIN_IDS if (FRAMEWORK_PLUGINS_DIR / pid / "plugin.toml").is_file()
+    )
+    assert not strays, f"这些个人插件混进了框架目录 plugins/：{strays}"
+    missing = sorted(
+        pid for pid in EXTRA_PLUGIN_IDS if not (EXTRA_PLUGINS_DIR / pid / "plugin.toml").is_file()
+    )
+    assert not missing, f"个人插件缺 plugin.toml：{missing}"
 
 
 _IMPORT_RE = re.compile(r"^\s*(?:from|import)\s+(haiqbot[\w.]*)", re.MULTILINE)
@@ -70,7 +95,7 @@ def test_plugins_only_import_public_api() -> None:
     """插件只允许 import `haiqbot.plugin_api`（其余用相对 import 走自己包）。"""
     allowed = {"haiqbot.plugin_api"}
     offenders: list[str] = []
-    for path in PLUGINS_DIR.rglob("*.py"):
+    for path in (p for base in ALL_PLUGIN_DIRS for p in base.rglob("*.py")):
         for target in _IMPORT_RE.findall(path.read_text(encoding="utf-8")):
             root = ".".join(target.split(".")[:2])
             if root in allowed:
@@ -80,11 +105,13 @@ def test_plugins_only_import_public_api() -> None:
 
 
 def test_plugin_discovery_uses_local_dirs() -> None:
-    """发现路径：entry point（协议）+ 本地目录（配置），不靠扫内核包。"""
+    """默认发现路径只认 `plugins/`：个人集成不会被开箱带进来。"""
     from haiqbot.kernel.plugin_sources import local_plugin_dirs
 
     found = set(local_plugin_dirs())
+    # 默认两个目录：框架目录 + 自有目录。两者都要能发现，否则「插件放进去没反应」。
     assert SHIPPED_PLUGIN_IDS <= found, f"本地目录发现不到：{sorted(SHIPPED_PLUGIN_IDS - found)}"
+    assert EXTRA_PLUGIN_IDS <= found, f"自有目录发现不到：{sorted(EXTRA_PLUGIN_IDS - found)}"
 
 
 def test_local_plugin_dir_without_manifest_is_ignored(tmp_path: Path) -> None:
@@ -107,7 +134,7 @@ def test_dump_default_config_lists_discovered_plugins(tmp_path: Path, monkeypatc
 
     monkeypatch.chdir(tmp_path)
     empty = dump_default_config()
-    assert 'plugin_dirs = ["plugins"]' in empty
+    assert 'plugin_dirs = ["plugins", "plugins-extra"]' in empty
     assert "enabled = []" in empty, "空目录下不该凭空列出一堆插件"
 
     plugin_dir = tmp_path / "plugins" / "demo"
