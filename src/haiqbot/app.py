@@ -45,6 +45,8 @@ _OUT_SEG_LABELS = {
     "button": "按钮",
     "json": "卡片",
 }
+# 去重表的过期清理间隔：不清理它会无限增长（每条事件一行）
+DEDUPE_GC_SECONDS = 600.0
 
 
 class App:
@@ -183,13 +185,19 @@ class App:
 
     # -- 中间件 ----------------------------------------------------------- #
     async def _mw_dedupe(self, pctx: PipelineContext) -> None:
+        """同一事件被平台重复上报时丢掉。
+
+        上报端等久了会重试（http/sse 模式尤其明显），重试 = 重复事件：
+        重复回消息、重复审批、重复写审计。key 怎么算交给事件自己
+        （`Event.dedupe_key`）—— 消息用 msg_id，请求用 flag，通知用组合字段。
+        """
         assert self.runtime is not None
-        event = pctx.event
-        if isinstance(event, MessageEvent) and event.msg_id:
-            key = f"{event.channel.platform}:{event.msg_id}"
-            if not await self.runtime.idempotency.first_time(key):
-                log.info("duplicate_message_dropped", msg_id=event.msg_id)
-                pctx.stop("duplicate")
+        key = pctx.event.dedupe_key()
+        if not key:
+            return
+        if not await self.runtime.idempotency.first_time(key):
+            log.info("duplicate_event_dropped", kind=str(pctx.event.kind), key=key)
+            pctx.stop("duplicate")
 
     async def _mw_scope(self, pctx: PipelineContext) -> None:
         assert self.runtime is not None
@@ -315,7 +323,7 @@ class App:
             await self.runtime.jobs.start()
 
     def _register_core_jobs(self) -> None:
-        """内核自己的周期性维护（目前只有媒体 GC）。业务定时任务归插件。"""
+        """内核自己的周期性维护（媒体 GC + 去重表 GC）。业务定时任务归插件。"""
         runtime = self.runtime
         if runtime is None or getattr(runtime, "scheduler", None) is None:
             return
@@ -324,6 +332,11 @@ class App:
         if media is not None and interval > 0:
             runtime.scheduler.add_interval("core:media-gc", interval, media.gc)
             log.info("core_job_registered", job="core:media-gc", seconds=interval)
+        # 去重表每条事件写一行、带过期时间，但没人删就会一直堆。
+        # 这一项不受 media.gc_interval_seconds 影响：关掉媒体 GC 不该让去重表膨胀。
+        if self.store is not None:
+            runtime.scheduler.add_interval("core:dedupe-gc", DEDUPE_GC_SECONDS, self.store.gc_dedupe)
+            log.info("core_job_registered", job="core:dedupe-gc", seconds=DEDUPE_GC_SECONDS)
 
     async def start_webui(self) -> None:
         if not self.config.webui.enabled or self.runtime is None:

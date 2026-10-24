@@ -82,7 +82,6 @@ adapter 归一化 → ① trace(注入 trace_id) → ② dedupe → ③ scope �
 - ①② 在 `App._on_event` 里，③④ 是可插拔 middleware，⑤ 是 `Bus._dispatch`，⑥ 在 publish 之后
 - 任一环可 `StopPipeline` 短路
 - 每个 handler 独立超时（默认 8s），插件卡死不会拖垮整条链
-- 每个 handler 独立超时（默认 8s），插件卡死不会拖垮整条链
 ### 事件面（OneBot）
 
 | post_type | 归一化成 | 说明 |
@@ -94,6 +93,22 @@ adapter 归一化 → ① trace(注入 trace_id) → ② dedupe → ③ scope �
 | `message_sent` | **丢弃** | 自己发的消息，进管线会导致自我回话 |
 
 内核只做「谁是谁」的语义拆分（当事人 / 操作者 / 相关 ID），平台原值全部留在 `Event.raw`。
+
+### 去重（dedupe 中间件）
+
+上报端在上报超时会**重发同一事件**（http/sse 模式尤其明显）：重发 = 重复回复、重复审批、
+重复写审计。key 由事件自己算（`Event.dedupe_key`），空 key = 不拦（宁可重复也别误杀）：
+
+| 事件 | key | 为什么这么算 |
+|---|---|---|
+| 消息 | `平台:msg_id` | `msg_id` 唯一 |
+| 请求 | `平台:request:flag` | `flag` 是审批凭据，天然唯一 |
+| 通知（撤回） | `平台:notice:类型:message_id` | 撤回的 `notice_id` 借的是被撤回消息的 id |
+| 通知（其它） | `平台:notice:类型:子类型:time:群:谁:对谁` | 没有统一 id，只能组合；`time` 是**秒级** |
+| 通知（戳一戳） | **不参与** | 连戳两下是正常操作，组合 key 会误杀 |
+
+过期行由内核自排的 `core:dedupe-gc`（600 秒）清掉 —— 不清理这张表会一直涨。
+
 ## 两枪回复与窗口
 
 ```

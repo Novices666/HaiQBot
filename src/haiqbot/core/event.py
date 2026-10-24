@@ -21,6 +21,17 @@ class EventKind(StrEnum):
     META = "meta"
 
 
+def _raw_ts(raw: dict[str, Any]) -> str:
+    """上报里的 `time`（OneBot 是秒级整数）。
+
+    拿不到就返回空串 —— 空 key 的意思是「无法判重，别拦」，宁可重复也别误杀。
+    """
+    if not isinstance(raw, dict):
+        return ""
+    ts = raw.get("time")
+    return str(ts) if ts is not None else ""
+
+
 @dataclass(slots=True)
 class Event:
     kind: EventKind
@@ -36,6 +47,14 @@ class Event:
 
     @property
     def text(self) -> str:
+        return ""
+
+    def dedupe_key(self) -> str:
+        """幂等 key：同一事件被平台重复上报时用它去重。空串 = 不参与去重。
+
+        为什么要按事件类型分开算：`msg_id` 只在消息里唯一；`request` 有平台发的
+        `flag`；`notice` 大多只有组合字段 —— 用一个通用 key 只会误杀。
+        """
         return ""
 
 
@@ -58,6 +77,10 @@ class MessageEvent(Event):
 
     def mentions_bot(self) -> bool:
         return self.at_bot or has_at_bot(self.segments, self.bot_id)
+
+    def dedupe_key(self) -> str:
+        # msg_id 在消息里唯一；没有 msg_id（极少见）就不拦
+        return f"{self.channel.platform}:{self.msg_id}" if self.msg_id else ""
 
 
 @dataclass(slots=True)
@@ -90,6 +113,40 @@ class NoticeEvent(Event):
         """这次操作是不是别人（大概率管理员）对我/他做的。"""
         return bool(self.operator_id) and self.operator_id != self.actor.id
 
+    # 戳一戳天然可连发（同一秒连戳两下是正常操作），组合 key 会误杀，直接不参与去重
+    _NO_DEDUPE = frozenset({("notify", "poke")})
+
+    def dedupe_key(self) -> str:
+        """没有统一 id 的通知怎么判重。
+
+        - 撤回类：`notice_id` 借的是 `message_id`，真正唯一
+        - 其余：只能靠「类型 + 上报时间 + 群 + 谁 + 对谁」组合。
+          `time` 是**秒级**，所以只在同一秒内生效 —— 这正好覆盖「上报端
+          超时重试」这个场景，又不会把同一人隔几秒的正常操作吃掉
+        - 拿不到 `raw.time`（比如测试里手搓的事件）：返回空串，不拦
+        """
+        platform = self.channel.platform
+        if self.notice_id:
+            return f"{platform}:notice:{self.notice_type}:{self.notice_id}"
+        if (self.notice_type, self.sub_type) in self._NO_DEDUPE:
+            return ""
+        ts = _raw_ts(self.raw)
+        if not ts:
+            return ""
+        parts = (
+            platform,
+            "notice",
+            self.notice_type,
+            self.sub_type,
+            ts,
+            self.channel.kind.value,
+            self.channel.id,
+            self.actor.id,
+            self.operator_id or "",
+            self.target_id or "",
+        )
+        return ":".join(parts)
+
 
 @dataclass(slots=True)
 class RequestEvent(Event):
@@ -107,3 +164,18 @@ class RequestEvent(Event):
     @property
     def id(self) -> str:
         return self.flag
+
+    def dedupe_key(self) -> str:
+        """`flag` 是平台发的审批凭据，天然唯一 —— 重复上报只能处理一次。
+
+        （重复审批会往群里回两次「已同意」，很难看。）没有 flag 时退回组合 key。
+        """
+        platform = self.channel.platform
+        if self.flag:
+            return f"{platform}:request:{self.flag}"
+        ts = _raw_ts(self.raw)
+        if not ts:
+            return ""
+        return ":".join(
+            (platform, "request", self.request_type, self.sub_type, ts, self.channel.id, self.actor.id)
+        )

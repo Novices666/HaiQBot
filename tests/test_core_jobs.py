@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from haiqbot.app import App
+from haiqbot.app import DEDUPE_GC_SECONDS, App
 from haiqbot.config import HaiqConfig, MediaCfg
 from haiqbot.services.media_store import MediaStore
 from haiqbot.services.scheduler import Scheduler
@@ -47,6 +47,7 @@ def test_core_job_is_registered():
     fake_self = SimpleNamespace(
         runtime=SimpleNamespace(scheduler=scheduler, media=media),
         config=HaiqConfig(),
+        store=None,
     )
     App._register_core_jobs(fake_self)
     assert "core:media-gc" in scheduler._jobs
@@ -58,6 +59,20 @@ def test_core_job_skipped_when_interval_zero():
     fake_self = SimpleNamespace(
         runtime=SimpleNamespace(scheduler=scheduler, media=SimpleNamespace(gc=lambda: None)),
         config=HaiqConfig(media=MediaCfg(gc_interval_seconds=0)),
+        store=None,
     )
     App._register_core_jobs(fake_self)
     assert scheduler._jobs == {}
+
+
+def test_dedupe_gc_registered_even_when_media_gc_off():
+    """去重表必须自己有人清：关掉媒体 GC 不该让它无限增长。"""
+    scheduler = Scheduler()
+    fake_self = SimpleNamespace(
+        runtime=SimpleNamespace(scheduler=scheduler, media=SimpleNamespace(gc=lambda: None)),
+        config=HaiqConfig(media=MediaCfg(gc_interval_seconds=0)),
+        store=SimpleNamespace(gc_dedupe=lambda: None),
+    )
+    App._register_core_jobs(fake_self)
+    assert scheduler._jobs["core:dedupe-gc"].seconds == DEDUPE_GC_SECONDS
+    assert "core:media-gc" not in scheduler._jobs
