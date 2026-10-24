@@ -11,7 +11,13 @@ class Help(Plugin):
     description = "列出所有可用命令"
     capabilities: list[str] = []
 
-    @on_command("help", aliases=["帮助", "菜单"], usage="help", priority=100)
+    @on_command(
+        "help",
+        aliases=["帮助", "菜单"],
+        usage="help",
+        description="列出你当前权限能用到的命令",
+        priority=100,
+    )
     async def show_help(self, ctx: Context) -> None:
         rows = ctx.introspect.commands() if ctx.introspect else []
         if not rows:

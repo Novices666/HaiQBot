@@ -12,7 +12,13 @@ class Echo(Plugin):
     name = "回声"
     description = "把你说的话原样送回去，用于验证插件链路"
 
-    @on_command("echo", aliases=["回声"], usage="echo <内容>", priority=10)
+    @on_command(
+        "echo",
+        aliases=["回声"],
+        usage="echo <内容>",
+        description="原样回显后面的内容（验证链路用）",
+        priority=10,
+    )
     async def echo(self, ctx: Context, content: str = "") -> None:
         text = content.strip() or "（空）"
         await ctx.reply.text(text)
