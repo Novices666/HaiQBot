@@ -13,8 +13,18 @@ from typing import Any
 
 from haiqbot.plugin_api import ProviderContext
 
-#: 允许的档位。用户要的比例会**吸附**到这几个里最接近的（接口只认这些）。
-IMAGE_SIZES = ("1024x1024", "1536x1024", "1024x1536", "512x512", "auto")
+#: 允许的档位。用户要的比例会**吸附**到这几个里最接近的。
+#: 限定不是接口限制（实测接口更宽松，见 router.SIZES 的注释），
+#: 而是为了比例可预期、体积与耗时可控。
+IMAGE_SIZES = (
+    "1024x1024",
+    "1536x1024",
+    "1024x1536",
+    "1920x1080",  # 16:9 横屏（实测接口接受）
+    "1080x1920",  # 16:9 竖屏（实测接口接受）
+    "512x512",
+    "auto",
+)
 
 IMAGE_MODELS = ("gpt-image-1", "gpt-image-2", "gpt-image-2.5", "dall-e-3")
 

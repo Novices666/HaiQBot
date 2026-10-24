@@ -5,7 +5,9 @@
 1. **一个模型调用干三件事**：判断"要不要画图"、产出给群友的回话、产出给生图模型的
    描述。分开调三次是浪费钱和时间，而且三者的上下文本来就该一致。
 2. **校验失败就降级成文字**，绝不在看不懂的模型返回上烧生图额度。
-3. **尺寸不让模型算**：正则抽 → 吸附到合法档位 → 在回复里说明实际尺寸。
+3. **尺寸由模型判断、代码只做安全吸附**：模型给 `size_hint`（比例 / 分辨率 /
+   方向词），代码用 `absorb_size` 吸附到接口认得的档位（绝不透传，透传会 400）；
+   模型没给时用正则兜底。尺寸只写日志，**不进回复**——回复里念参数很生硬。
 4. **不发 ack**：`ctx.reply.ack()` 等价于 `text()`，会永久多一条可见消息；官方通道
    还对同一 msg_id 限制 5 次回复，ack 会吃掉一个配额。宁可安静。
 5. **审查分层**：词表（免费、确定）→ 模型（语义）。auto 模式下"问模型"是免费的，
@@ -528,23 +530,13 @@ class Assistant(Plugin):
         尺寸优先取模型给的 hint，其次从原句里抽 —— 但**始终用正则归一化**，
         因为模型算比例会幻觉，而这个数字直接决定请求体的 size 字段。
         """
-        size_key = ""
+        # 优先级统一收在 router.decide_size 里（原句 > 模型方向词 > 默认档）
+        size_key, parsed_size = router.decide_size(original, hint, default=default_size)
         note = ""
-        for candidate in (hint, original):
-            parsed = router.parse_size(candidate or "")
-            if parsed is None:
-                continue
-            size_key = router.absorb_size(parsed.ratio)
+        if parsed_size is not None:
             actual = router.describe_size(size_key)
-            if parsed.label and parsed.label.replace("x", "×") != actual:
+            if parsed_size.label and parsed_size.label.replace("x", "×") != actual:
                 note = f"（实际 {actual}）"
-            break
-        if not size_key:
-            size_key = (
-                default_size
-                if default_size in router.SIZES or default_size == "auto"
-                else router.DEFAULT_SIZE
-            )
 
         body = (prompt or original or "").strip()
         # 只剥「这段文字自己」里的尺寸：拿 A 的 span 去切 B 的字符串会切错位置
