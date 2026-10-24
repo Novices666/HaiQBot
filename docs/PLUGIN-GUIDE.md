@@ -234,15 +234,6 @@ async def draw(self, ctx, prompt: str): ...
 async def ask(self, ctx: Context, q: str = "") -> None: ...
 
 
-
-
-
-
-
-
-
-
-
 @on_message(require_at=True, feature="ask")
 async def talk(self, ctx: Context) -> None: ...
 

@@ -40,6 +40,21 @@ DEFAULT_HISTORY_TURNS = 6
 #: hybrid 模式下"明确要图"的硬规则。只在 router_mode=hybrid 时使用。
 _DRAW_HINT = re.compile(r"(画|绘制|生成|来)(一|个|张|幅)?.*(图|画|插画|头像|壁纸|海报|表情包)")
 
+#: 发言人昵称会进 user 消息 —— 它是用户可控输入，所以截断 + 去掉能伪造对话结构的字符。
+_NAME_MAX = 24
+_NAME_TRANS = str.maketrans({"\n": " ", "\r": " ", "\t": " ", ":": " ", "：": " ", "|": " "})
+
+
+def sender_label(ctx: Any) -> str:
+    """从事件里取「谁在说话」：群名片优先，其次昵称。取不到就空串。"""
+    event = getattr(ctx, "event", None)
+    actor = getattr(event, "actor", None)
+    raw = str(getattr(actor, "name", "") or "").strip()
+    if not raw:
+        return ""
+    return " ".join(raw.translate(_NAME_TRANS).split())[:_NAME_MAX]
+
+
 # --------------------------------------------------------------------------- #
 # 统计：面板页用。按天存一条 kv 记录，重启不丢，跨天自动归零。
 # --------------------------------------------------------------------------- #
@@ -264,6 +279,14 @@ class Assistant(Plugin):
                 "default": True,
             },
             {
+                "key": "include_sender_name",
+                "label": "告诉模型谁在说话",
+                "kind": "bool",
+                "default": True,
+                "description": "把群昵称当作「昵称: 内容」前缀传给模型。昵称会被截断并去掉冒号/换行，"
+                "避免被拿来伪造对话结构。",
+            },
+            {
                 "key": "moderate_prompt",
                 "label": "出图前再问一次模型",
                 "kind": "bool",
@@ -345,14 +368,17 @@ class Assistant(Plugin):
         if await self._blocked_by_lexicon(ctx, text):
             return
 
+        # 给模型看的内容带上「谁在说话」，但审查用原始文本（昵称不该触发违禁词判定）
+        spoken = self._named(ctx, text)
+
         mode = str(ctx.config.get("router_mode", "auto")).strip().lower()
         if mode == "command":
-            await self._plain_chat(ctx, text, use_history=use_history)
+            await self._plain_chat(ctx, spoken, use_history=use_history)
             return
         if mode == "hybrid":
-            await self._hybrid(ctx, text, use_history=use_history)
+            await self._hybrid(ctx, spoken, use_history=use_history)
             return
-        await self._auto(ctx, text, use_history=use_history)
+        await self._auto(ctx, spoken, use_history=use_history)
 
     async def _plain_chat(self, ctx: Context, text: str, *, use_history: bool) -> None:
         """纯聊天：不做意图判断，也不审查模型输出（除词表）。"""
@@ -635,6 +661,21 @@ class Assistant(Plugin):
             await ctx.reply.text(f"🚫 已拦截（{category}），请注意言辞。")
 
     # -- 配置读取 --------------------------------------------------------- #
+
+    @staticmethod
+    def _flag(ctx: Context, key: str, default: bool) -> bool:
+        """配置里的开关：TOML 给的是真 bool，但面板/旧文件可能存成字符串。"""
+        raw = ctx.config.get(key, default)
+        if isinstance(raw, str):
+            return raw.strip().lower() in ("1", "true", "yes", "on")
+        return bool(raw)
+
+    def _named(self, ctx: Context, text: str) -> str:
+        """给模型看的文本加「昵称: 」前缀（可关）。历史里也存这个形态，多人对话才分得清谁说的。"""
+        if not self._flag(ctx, "include_sender_name", True):
+            return text
+        label = sender_label(ctx)
+        return f"{label}: {text}" if label else text
 
     @staticmethod
     def _float_cfg(ctx: Context, key: str, default: float) -> float:
