@@ -142,6 +142,14 @@ class OneBotAdapter(Adapter):
         self._reconnects = 0
         self._connected_since: float | None = None
         self._last_error: str | None = None
+        # -- 自身身份 / 心跳 --
+        # 配置里的 self_id 是兜底：http/sse 模式下协议端可能一直不发 meta_event，
+        # 而 at_bot 判定、面板显示、过滤自己发的消息都需要 bot_id
+        self._self_id: str | None = cfg.self_id or None
+        self.bot_id = self._self_id
+        self._last_heartbeat: float | None = None
+        # OneBot 默认 30s；payload 里带 interval（毫秒），收到就覆盖
+        self._heartbeat_interval = 30.0
 
     # -- 健康度 --------------------------------------------------------- #
     def health(self) -> dict[str, Any]:
@@ -165,9 +173,24 @@ class OneBotAdapter(Adapter):
                 "connected_since": self._connected_since,
                 "reconnects": self._reconnects,
                 "last_error": self._last_error,
+                # 心跳：只有收过心跳才判得了「半开连接」，没收到就返回 None，不谎报
+                "self_id": self.bot_id,
+                "last_heartbeat_ts": self._last_heartbeat,
+                "heartbeat_interval": self._heartbeat_interval,
+                "heartbeat_stale": self._heartbeat_stale(),
             }
         )
         return base
+
+    def _heartbeat_stale(self) -> bool | None:
+        """WS 假死？TCP 没断但迟迟没心跳 —— 这是唯一能发现半开连接的信号。
+
+        阈值取 2.5 倍心跳间隔、且不低于 90 秒：抖一次不该报警。
+        """
+        if self._last_heartbeat is None:
+            return None
+        limit = max(self._heartbeat_interval * 2.5, 90.0)
+        return (time.time() - self._last_heartbeat) > limit
 
     # -- 生命周期 --------------------------------------------------------- #
     async def start(self) -> None:
@@ -521,7 +544,14 @@ class OneBotAdapter(Adapter):
         # 插件要判断"发言者是不是管理员"、要拿匿名信息，全靠它。
         raw: dict[str, Any] = dict(payload)
         segments = _decode_segments(payload.get("message"))
-        bot_id = str(payload.get("self_id")) if payload.get("self_id") else None
+        # 自己的身份：payload 的 self_id 优先，其次配置里的 [onebot] self_id 兜底
+        # （http/sse 模式下协议端可能一直不发 meta_event，配置值就是唯一来源）
+        bot_id = str(payload.get("self_id") or self._self_id or "") or None
+        if bot_id and str(payload.get("user_id")) == bot_id:
+            # 协议端把机器人自己发的消息当普通 message 推上来时，绝不能进管线：
+            # 否则插件会对自己回话，滚成死循环。
+            log.warning("onebot_self_message_dropped", msg_id=str(payload.get("message_id", "")))
+            return None
         # @ 机器人：扫消息段里有没有指向自己的 at
         at_bot = any(
             seg.kind is SegmentKind.AT and bot_id is not None and str(seg.data.get("user_id")) == bot_id
@@ -601,11 +631,24 @@ class OneBotAdapter(Adapter):
         )
 
     def _parse_meta(self, payload: dict[str, Any]) -> Event | None:
-        """只放 lifecycle（连上/启用/停用）进管线；heartbeat 每 30s 一条，纯噪音。"""
-        meta_type = payload.get("meta_event_type")
+        """lifecycle 进管线；heartbeat 不进管线，但用来判「连接还活着吗」。
+
+        为什么心跳不能丢：TCP 没断、WS 假死（半开连接）时 `connected` 还是 True，
+        面板会显示"一切正常"，实际消息全丢。心跳是唯一能发现这种情况的信号。
+        """
+        meta_type = str(payload.get("meta_event_type") or "")
+        if payload.get("self_id"):
+            # 心跳也带 self_id：顺手把身份记下来（http/sse 模式可能从不发 lifecycle）
+            self._self_id = str(payload.get("self_id"))
+            self.bot_id = self._self_id
+        if meta_type == "heartbeat":
+            self._last_heartbeat = time.time()
+            interval = payload.get("interval")
+            if isinstance(interval, int | float) and interval > 0:
+                # OneBot 的 interval 是毫秒
+                self._heartbeat_interval = float(interval) / 1000.0
+            return None
         if meta_type != "lifecycle":
-            if payload.get("self_id"):
-                self.bot_id = str(payload.get("self_id"))
             return None
         return Event(
             kind=EventKind.META,

@@ -90,13 +90,17 @@ class Runtime:
         }
 
     def _degraded(self) -> bool:
-        """任一已启用平台明确掉线即视为降级（未知态不算）。"""
+        """任一已启用平台明确掉线、或心跳停了，即视为降级（未知态不算）。"""
         for adapter in self.adapters.values():
             try:
-                if adapter.health().get("connected") is False:
-                    return True
+                info = adapter.health()
             except Exception:  # noqa: BLE001
                 continue
+            # connected=False：明确掉线（WS 断了 / 从没连上）
+            # heartbeat_stale=True：TCP 还连着但心跳停了 —— WS 半开连接，
+            # 面板看到 connected=True 会以为一切正常，实际消息全丢
+            if info.get("connected") is False or info.get("heartbeat_stale") is True:
+                return True
         return False
 
     def advertise(self) -> dict[str, Any]:
