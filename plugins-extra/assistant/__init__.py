@@ -312,7 +312,15 @@ class Assistant(Plugin):
 
     # -- 入口 ------------------------------------------------------------- #
 
-    @on_command("问", aliases=["ask", "ai"], usage="问 <问题>", priority=15, timeout=180, feature="ask")
+    @on_command(
+        "问",
+        aliases=["ask", "ai"],
+        usage="问 <问题>",
+        description="单轮问答，不带上下文（要连续对话就用 @我）",
+        priority=15,
+        timeout=180,
+        feature="ask",
+    )
     async def ask(self, ctx: Context, question: str = "") -> None:
         await self._handle(ctx, question, use_history=False)
 
@@ -327,6 +335,7 @@ class Assistant(Plugin):
         "画图",
         aliases=["draw", "画画"],
         usage="画图 <描述>",
+        description="强制出图，支持「16:9」「1920x1080」这类尺寸",
         priority=20,
         timeout=180,
         feature="draw",
@@ -349,7 +358,15 @@ class Assistant(Plugin):
             return
         await self._generate_and_send(ctx, prompt_text, size, size_note=size_note)
 
-    @on_command("重置对话", aliases=["reset"], usage="重置对话", priority=15, timeout=30, feature="reset")
+    @on_command(
+        "重置对话",
+        aliases=["reset"],
+        usage="重置对话",
+        description="清掉本群你和我的对话上下文",
+        priority=15,
+        timeout=30,
+        feature="reset",
+    )
     async def reset(self, ctx: Context) -> None:
         if ctx.kv is None:
             await ctx.reply.text("kv 能力未启用，无法重置上下文")

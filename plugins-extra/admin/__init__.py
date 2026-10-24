@@ -20,7 +20,14 @@ class Admin(Plugin):
     description = "只读的运行时状态查询"
     capabilities: list[str] = []
 
-    @on_command("plugins", aliases=["插件"], usage="plugins", min_role=Role.ADMIN, priority=90)
+    @on_command(
+        "plugins",
+        aliases=["插件"],
+        usage="plugins",
+        description="列出所有插件与加载状态",
+        min_role=Role.ADMIN,
+        priority=90,
+    )
     async def list_plugins(self, ctx: Context) -> None:
         if not ctx.introspect:
             await ctx.reply.text("内省能力不可用")
@@ -37,7 +44,14 @@ class Admin(Plugin):
             lines.append(f"  {''.join(marks)} {row['id']}  {row.get('version', '')}")
         await ctx.reply.text("\n".join(lines))
 
-    @on_command("status", aliases=["状态"], usage="status", min_role=Role.ADMIN, priority=90)
+    @on_command(
+        "status",
+        aliases=["状态"],
+        usage="status",
+        description="本会话运行时状态：平台 / 能力 / 被动窗口剩余",
+        min_role=Role.ADMIN,
+        priority=90,
+    )
     async def status(self, ctx: Context) -> None:
         caps = ctx.reply.capabilities
         lines = [

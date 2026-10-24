@@ -255,3 +255,10 @@ async def test_broker_without_system_extra_keeps_old_shape():
     await broker.chat("你好")
 
     assert provider.calls[-1] == [{"role": "user", "content": "你好"}]
+
+
+def test_commands_carry_their_own_description():
+    """/help 只显示命令级说明；缺了就会退化成空白（而不是借用插件描述）。"""
+    for func in (Assistant.ask, Assistant.draw, Assistant.reset):
+        specs = func._haiqbot_specs
+        assert specs[0].get("description"), f"{func.__name__} 没有 description"

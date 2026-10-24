@@ -706,7 +706,9 @@ class Registry:
                         "command": rule.commands[0],
                         "aliases": list(rule.commands[1:]),
                         "usage": rule.usage,
-                        "description": rule.description or handle.manifest.description,
+                        # 只用命令自己的说明；没有就留空（不能回落成插件描述 ——
+                        # 那会让 /help 出现「/画图 —— 内容审查」这种误导文案）
+                        "description": rule.description or "",
                         "min_role": int(rule.min_role),
                     }
                 )
