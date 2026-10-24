@@ -671,7 +671,11 @@ class OneBotAdapter(Adapter):
         )
         # 带图/文件的发送要等协议端上传完，不能用控制类 API 的短超时
         has_media = any(s.kind in (SegmentKind.IMAGE, SegmentKind.FILE) for s in segments)
+        if has_media:
+            # 只记结构，不记内容：出问题时用来区分"发的是 base64 还是 URL""多大"
+            log.info("outbound_media_payload", **self._payload_shape(message))
         extra = {"timeout": self.cfg.send_timeout_seconds} if has_media else {}
+        started = time.monotonic()
 
         if channel.kind is ChannelKind.GROUP:
             resp = await self.call(
@@ -690,7 +694,33 @@ class OneBotAdapter(Adapter):
         if resp.get("status") == "failed":
             raise AdapterError(f"OneBot 发送失败：{resp.get('retcode')}")
         data = resp.get("data") or {}
-        return str(data.get("message_id")) if data.get("message_id") is not None else None
+        sent_id = str(data.get("message_id")) if data.get("message_id") is not None else None
+        if has_media:
+            # 媒体发送成功也要留痕：否则"没报错"和"没发出去"在日志里长得一样
+            log.info(
+                "outbound_media_sent",
+                message_id=sent_id,
+                elapsed_ms=int((time.monotonic() - started) * 1000),
+                **self._payload_shape(message),
+            )
+        return sent_id
+
+    @staticmethod
+    def _payload_shape(message: list[dict[str, Any]]) -> dict[str, Any]:
+        """出站媒体的形状摘要：类型、`file` 方案、长度。绝不记录 base64 正文。"""
+        parts: list[str] = []
+        total = 0
+        for seg in message:
+            kind = seg.get("type")
+            data = seg.get("data") or {}
+            if kind == "image":
+                file = str(data.get("file") or "")
+                scheme = file.split("://", 1)[0] + "://" if "://" in file else "(raw)"
+                parts.append(f"image:{scheme}{len(file)}")
+                total += len(file)
+            else:
+                parts.append(str(kind))
+        return {"segments": ",".join(parts), "media_chars": total}
 
     # -- 管理动作 --------------------------------------------------------- #
     # 全部走 `_guarded_send`：这些调用在 QQ 侧同样受频率限制，
