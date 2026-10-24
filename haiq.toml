@@ -22,7 +22,8 @@ enabled = ["echo", "help", "admin", "assistant", "guard"]
 # 原 painter 与 chat 已合并进这里：配置按前缀区分（image_* / chat_*）。
 [quota]
 enabled = true
-per_user_per_day = 20
+# 0 = 不限制（四个旋钮统一语义：> 0 生效，0 关闭该维度）
+per_user_per_day = 0
 per_channel_per_day = 300
 rate_per_user_per_min = 6
 rate_global_per_min = 120

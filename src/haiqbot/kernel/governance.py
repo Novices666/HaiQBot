@@ -47,6 +47,8 @@ class TokenBucket:
     _last: dict[str, float] = field(default_factory=dict)
 
     def allow(self, key: str, cost: float = 1.0, now: float | None = None) -> bool:
+        if self.capacity <= 0:  # 0 = 不限速（配置里写 0 就是想关掉这一维）
+            return True
         ts = now if now is not None else time.monotonic()
         tokens = self._tokens.get(key, float(self.capacity))
         last = self._last.get(key, ts)
@@ -59,12 +61,25 @@ class TokenBucket:
         return True
 
 
+def _limit_with_override(overrides: dict[str, int] | None, key: str, fallback: int) -> int:
+    """群级覆盖优先。**0 是合法值（不限制），不能当成"没配"回落全局值。**"""
+    if overrides and key in overrides and overrides[key] is not None:
+        return int(overrides[key])
+    return int(fallback)
+
+
 def today_key() -> str:
     return _dt.date.today().isoformat()
 
 
 class QuotaService:
-    """日配额 + 每分钟限速。"""
+    """日配额 + 每分钟限速。
+
+    四个旋钮（`per_user_per_day` / `per_channel_per_day` /
+    `rate_per_user_per_min` / `rate_global_per_min`）统一语义：
+    **> 0 生效；<= 0 表示这一维不限制**。注意方向别搞反——
+    0 是"不限制"而不是"全禁"，后者会让所有人在第一条消息就被挡住。
+    """
 
     def __init__(self, store: Any, cfg: QuotaCfg, resolver: RoleResolver | None = None) -> None:
         self.store = store
@@ -99,17 +114,21 @@ class QuotaService:
         if not self.user_bucket.allow(str(actor_id)):
             return False, "手速太快了，慢一点"
 
-        # 群维度可以覆盖每日配额（面板「群聊」页），0 或缺失则用全局值
-        user_limit = int((overrides or {}).get("per_user_per_day") or self.cfg.per_user_per_day)
-        chan_limit = int((overrides or {}).get("per_channel_per_day") or self.cfg.per_channel_per_day)
+        # 群维度可以覆盖每日配额（面板「群聊」页）；未配置（None）才回落全局值。
+        # 注意：**0 是合法值 = 不限制**，不能用 `or` 判断，否则 0 会被当成"没配"。
+        user_limit = _limit_with_override(overrides, "per_user_per_day", self.cfg.per_user_per_day)
+        chan_limit = _limit_with_override(overrides, "per_channel_per_day", self.cfg.per_channel_per_day)
 
         day = today_key()
-        used_user = await self.store.quota_get(f"user:{actor_id}", day)
-        if used_user >= user_limit:
-            return False, self.cfg.overflow_message
-        used_chan = await self.store.quota_get(f"chan:{channel}", day)
-        if used_chan >= chan_limit:
-            return False, "本群今日额度已用完"
+        # 0（或负数）= 不限制：这一维直接放行，连库都不查
+        if user_limit > 0:
+            used_user = await self.store.quota_get(f"user:{actor_id}", day)
+            if used_user >= user_limit:
+                return False, self.cfg.overflow_message
+        if chan_limit > 0:
+            used_chan = await self.store.quota_get(f"chan:{channel}", day)
+            if used_chan >= chan_limit:
+                return False, "本群今日额度已用完"
         return True, ""
 
     async def consume(self, *, actor_id: str, channel: ChannelId, cost: int = 1) -> None:

@@ -443,6 +443,9 @@ enabled = __PLUGINS_ENABLED__
 # max_per_user_per_day = 20
 
 [quota]
+# 四个旋钮统一语义：> 0 生效；**0 = 不限制**（包括每分钟限流）。
+# 想让机器人随便聊就把 per_user_per_day 设 0；
+# 想连"刷屏保护"一起关，把 rate_per_user_per_min / rate_global_per_min 也设 0。
 enabled = true
 per_user_per_day = 20
 per_channel_per_day = 300

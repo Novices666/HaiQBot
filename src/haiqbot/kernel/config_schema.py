@@ -119,12 +119,42 @@ SCHEMA: tuple[Field, ...] = (
     Field("official", "token_url", "取 Token 地址", "str", "access"),
     # -- 治理：配额 --------------------------------------------------------- #
     Field("quota", "enabled", "启用配额", "bool", "governance"),
-    Field("quota", "per_user_per_day", "单用户日配额", "int", "governance", minimum=0, maximum=100000),
-    Field("quota", "per_channel_per_day", "单群日配额", "int", "governance", minimum=0, maximum=1000000),
     Field(
-        "quota", "rate_per_user_per_min", "单用户每分钟限流", "int", "governance", minimum=0, maximum=10000
+        "quota",
+        "per_user_per_day",
+        "单用户日配额（0 = 不限制）",
+        "int",
+        "governance",
+        minimum=0,
+        maximum=100000,
     ),
-    Field("quota", "rate_global_per_min", "全局每分钟限流", "int", "governance", minimum=0, maximum=100000),
+    Field(
+        "quota",
+        "per_channel_per_day",
+        "单群日配额（0 = 不限制）",
+        "int",
+        "governance",
+        minimum=0,
+        maximum=1000000,
+    ),
+    Field(
+        "quota",
+        "rate_per_user_per_min",
+        "单用户每分钟限流（0 = 不限制）",
+        "int",
+        "governance",
+        minimum=0,
+        maximum=10000,
+    ),
+    Field(
+        "quota",
+        "rate_global_per_min",
+        "全局每分钟限流（0 = 不限制）",
+        "int",
+        "governance",
+        minimum=0,
+        maximum=100000,
+    ),
     Field("quota", "overflow_message", "配额用尽提示", "str", "governance"),
     # -- 治理：策略 --------------------------------------------------------- #
     Field(

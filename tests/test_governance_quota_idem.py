@@ -60,6 +60,52 @@ async def test_channel_quota_blocks(store: Store) -> None:
     assert "本群" in reason
 
 
+async def test_zero_user_quota_means_unlimited(store: Store) -> None:
+    """0 = 不限制，**不是全禁**。
+
+    历史坑：`used >= limit` 在 limit=0 时恒真，会把所有人挡在第一条消息。
+    """
+    cfg = QuotaCfg(enabled=True, per_user_per_day=0, per_channel_per_day=100, rate_per_user_per_min=1000)
+    quota = QuotaService(store, cfg)
+    channel = ChannelId("mock", ChannelKind.GROUP, "1")
+    for _ in range(50):
+        ok, reason = await quota.check_and_consume(actor_id="u1", channel=channel)
+        assert ok is True, reason
+
+
+async def test_zero_channel_quota_means_unlimited(store: Store) -> None:
+    cfg = QuotaCfg(enabled=True, per_user_per_day=100, per_channel_per_day=0, rate_per_user_per_min=1000)
+    quota = QuotaService(store, cfg)
+    channel = ChannelId("mock", ChannelKind.GROUP, "9")
+    for i in range(30):
+        ok, reason = await quota.check_and_consume(actor_id=f"u{i}", channel=channel)
+        assert ok is True, reason
+
+
+def test_zero_rate_means_no_throttle() -> None:
+    """限流旋钮写 0 = 不限速；capacity=0 的令牌桶必须放行而不是全禁。"""
+    bucket = TokenBucket(capacity=0, refill_per_sec=0)
+    for _ in range(20):
+        assert bucket.allow("k", now=0.0) is True
+
+
+async def test_channel_override_zero_wins_over_global(store: Store) -> None:
+    """群级覆盖写 0 必须生效（= 本群不限制），不能回落全局值 2。"""
+    cfg = QuotaCfg(enabled=True, per_user_per_day=2, per_channel_per_day=100, rate_per_user_per_min=1000)
+    quota = QuotaService(store, cfg)
+    channel = ChannelId("mock", ChannelKind.GROUP, "7")
+    overrides = {"per_user_per_day": 0}
+    for _ in range(10):
+        ok, reason = await quota.check(actor_id="u1", channel=channel, overrides=overrides)
+        assert ok is True, reason
+        await quota.consume(actor_id="u1", channel=channel)
+
+    # 对照：不给覆盖时，全局值 2 仍然生效
+    ok, reason = await quota.check(actor_id="u1", channel=channel)
+    assert ok is False
+    assert reason == cfg.overflow_message
+
+
 async def test_quota_disabled_always_allows(store: Store) -> None:
     quota = QuotaService(store, QuotaCfg(enabled=False, per_user_per_day=0))
     channel = ChannelId("mock", ChannelKind.GROUP, "1")
