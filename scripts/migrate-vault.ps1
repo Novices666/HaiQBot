@@ -19,7 +19,7 @@ if (-not (Test-Path $haiqbot)) {
 
 Write-Host '=== 1/3 迁移凭据 ===' -ForegroundColor Cyan
 Write-Host '（会让你输两次密码，不回显；忘记密码 = 凭据全丢，建议同时导出一份）'
-& $haiq secrets reencrypt
+& $haiqbot secrets reencrypt
 if ($LASTEXITCODE -ne 0) {
     Write-Host "迁移未完成（退出码 $LASTEXITCODE），已中止。" -ForegroundColor Red
     exit $LASTEXITCODE
@@ -37,9 +37,9 @@ try {
 
 Write-Host ''
 Write-Host '=== 3/3 验证 ===' -ForegroundColor Cyan
-& $haiq secrets list
+& $haiqbot secrets list
 Write-Host ''
-& $haiq doctor
+& $haiqbot doctor
 $doctorCode = $LASTEXITCODE
 
 Write-Host ''

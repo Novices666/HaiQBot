@@ -5,8 +5,8 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\dev-up.ps1 -SkipDocker   # 容器已在跑
 #   powershell -ExecutionPolicy Bypass -File scripts\dev-up.ps1 -SkipBot      # 只起容器
 #
-# 口令处理：脚本只把 secrets\.vault-pass.txt 的内容经 `set /p` 注入子进程环境变量，
-# 口令不会出现在命令行参数、不会打印、不会写日志。
+# 口令处理：口令存在 secrets\.vault-pass.dpapi（Windows DPAPI，仅本机本账户可解）。
+# 解密与起进程都由 scripts\run-with-vault.ps1 负责，命令行里只有脚本路径，口令不打印、不落日志。
 # 子进程用 WMI Win32_Process 创建，因此关掉当前 PowerShell 窗口不会把它带走。
 
 param(
@@ -20,7 +20,8 @@ $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
 $py = Join-Path $root ".venv\Scripts\python.exe"
-$passFile = Join-Path $root "secrets\.vault-pass.txt"
+$runner = Join-Path $PSScriptRoot "run-with-vault.ps1"
+. (Join-Path $PSScriptRoot "vaultpass.ps1")
 $logFile = Join-Path $root "logs\haiq.out"
 $cfg = Join-Path $root "haiq.toml"
 
@@ -195,13 +196,13 @@ if (-not $SkipBot) {
         Ok "已经在跑（WebUI $webuiPort 有响应），跳过启动"
     }
     else {
-        if (-not (Test-Path $passFile)) {
-            Die "找不到 $passFile —— 没有它就无法解 vault。手动跑：`$env:HAIQ_VAULT_PASSPHRASE=...; python -m haiqbot run"
+        if (-not (Read-VaultPass -Root $root)) {
+            Die "找不到口令：secrets\.vault-pass.dpapi —— 先生成：powershell -ExecutionPolicy Bypass -File scripts\rotate-vault-pass.ps1"
         }
         if (-not (Test-Path (Split-Path -Parent $logFile))) { New-Item -ItemType Directory -Path (Split-Path -Parent $logFile) | Out-Null }
 
-        # 口令经 set /p 从文件读进子进程环境变量：不出现在命令行，也不打印
-        $cmd = "cmd.exe /c set /p HAIQ_VAULT_PASSPHRASE=<`"$passFile`" && cd /d `"$root`" && `"$py`" -m haiqbot --config haiq.toml run >> `"$logFile`" 2>&1"
+        # 口令不进命令行：run-with-vault.ps1 自己从 DPAPI 文件解密、设进环境，再起 python
+        $cmd = "cmd.exe /c powershell -NoProfile -ExecutionPolicy Bypass -File `"$runner`""
         $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd }
         if ($r.ReturnValue -ne 0) { Die "进程创建失败（ReturnValue=$($r.ReturnValue)）" }
         Ok "已拉起 pid=$($r.ProcessId)（分离进程，关窗口不影响）"

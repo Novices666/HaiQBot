@@ -132,6 +132,9 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print("      请执行：haiq secrets reencrypt")
         errors += 1
 
+    if (vdir / ".vault-pass.dpapi").is_file():
+        print("口令文件：.vault-pass.dpapi（Windows DPAPI，仅本机本账户可解）")
+        print("      换机器 / 换账户启动要重跑 scripts\\rotate-vault-pass.ps1 重建")
     # 明文密码文件 = 加密白做：能读到 vault.json 的人也能读到钥匙
     for name in (".vault-pass.txt", "vault-pass.txt", ".passphrase"):
         if (vdir / name).is_file():

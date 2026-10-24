@@ -123,3 +123,31 @@ def test_doctor_warns_on_plaintext_passphrase_file(tmp_path: Path, monkeypatch, 
     assert "明文密码文件还在" in out
     assert "rotate-vault-pass.ps1" in out
     assert code >= 1
+
+
+def test_doctor_recognises_dpapi_passphrase_file(tmp_path: Path, monkeypatch, capsys) -> None:
+    """口令存进 .vault-pass.dpapi 就不该再报「明文密码文件还在」。"""
+    cfg_path = tmp_path / "haiq.toml"
+    cfg_path.write_text("", encoding="utf-8")
+    secrets = tmp_path / "secrets"
+    secrets.mkdir()
+    cfg = HaiqConfig(
+        data_dir=tmp_path / "data",
+        db_path=tmp_path / "data" / "haiq.db",
+        secrets_dir=secrets,
+        vault=VaultCfg(enc="none"),
+        webui=WebuiCfg(enabled=False, write_enabled=False),
+    )
+    vault = Vault.from_config(cfg)
+    for ref in ("HAIQ_IMAGE_API_KEY", "HAIQ_CHAT_API_KEY", "HAIQ_ONEBOT_ACCESS_TOKEN"):
+        vault.set(ref, "v")
+    # 内容不重要：doctor 只看文件在不在，不负责解 DPAPI
+    (secrets / ".vault-pass.dpapi").write_text("QUJD", encoding="utf-8")
+
+    monkeypatch.setattr("haiqbot.cli.load_config", lambda _p: cfg)
+    code = _doctor(str(cfg_path))
+    out = capsys.readouterr().out
+    assert ".vault-pass.dpapi" in out
+    assert "明文密码文件还在" not in out
+    # 退出码受环境影响（宿主机开着代理就会多一条警告），只能松着断言
+    assert code in (0, 1)

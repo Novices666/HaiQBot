@@ -80,7 +80,11 @@ powershell -ExecutionPolicy Bypass -File scripts\dev-up.ps1
 | `-SkipDocker` | 容器已在跑，只起 bot |
 | `-SkipBot` | 只起容器，不起 bot |
 
-口令不会出现在命令行：脚本用 `set /p` 把 `secrets\.vault-pass.txt` 读进子进程环境变量。
+口令不会出现在命令行：`dev-up.ps1` 调 `scripts\run-with-vault.ps1`，后者从
+`secrets\.vault-pass.dpapi`（Windows DPAPI，仅本机本账户可解）解出口令、设进自己的
+进程环境，再用 `cmd /c ... >> logs\haiq.out` 起 python。命令行走的是脚本路径。
+换机器或换账户时 DPAPI 解不开：先 `$env:HAIQ_VAULT_PASSPHRASE=...`，再跑一次
+`scripts\rotate-vault-pass.ps1` 重建 DPAPI 文件。
 
 浏览器打开 <http://127.0.0.1:8080>，用面板令牌登录：
 
