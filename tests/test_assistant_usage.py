@@ -14,7 +14,9 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from haiqbot_local_assistant import Assistant
+from haiqbot_local_assistant import Assistant, router, util
+from haiqbot_local_assistant.chat.broker import LLMBroker
+from haiqbot_local_assistant.chat.providers.mock import MockChatProvider
 
 from haiqbot.plugin_api import get_logger
 
@@ -218,3 +220,38 @@ def test_sender_name_can_be_disabled():
     # 字符串形态也要认（面板/旧文件可能存成 "false"）
     ctx2 = named_ctx("小明", config={"include_sender_name": "false"})
     assert plugin._named(ctx2, "你好") == "你好"
+
+
+# ---------------------------------------------------------------- 前缀说明
+
+
+def test_router_prompt_explains_sender_prefix():
+    """模型必须被告知 `昵称: ` 是什么，否则它会当成噪声并瞎编「看不到昵称」。
+
+    注意：导入都放在模块顶层 —— 另一些测试会按「同名不同目录」把插件模块
+    从 sys.modules 里换掉/摘掉，函数内 import 在执行期就跑不通了。
+    """
+    assert "昵称" in router.SYSTEM_PROMPT
+
+
+async def test_broker_appends_system_extra():
+    provider = MockChatProvider()
+    broker = LLMBroker(provider, model="m", system_prompt="你是一个助手")
+    broker.system_extra = util.SENDER_PREFIX_NOTE
+
+    await broker.chat("你好")
+
+    system = provider.calls[-1][0]
+    assert system["role"] == "system"
+    # 用户可配的人设和协议说明都在，且互不覆盖
+    assert "你是一个助手" in system["content"]
+    assert util.SENDER_PREFIX_NOTE in system["content"]
+
+
+async def test_broker_without_system_extra_keeps_old_shape():
+    provider = MockChatProvider()
+    broker = LLMBroker(provider, model="m", system_prompt="")
+
+    await broker.chat("你好")
+
+    assert provider.calls[-1] == [{"role": "user", "content": "你好"}]

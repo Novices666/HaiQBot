@@ -42,6 +42,9 @@ class LLMBroker:
         self.system_prompt = system_prompt
         self.max_tokens = max_tokens
         self.temperature = temperature
+        #: 追加到 system 的固定说明（由插件组装服务时填）。与 system_prompt 分开：
+        #: 「用户可配的人设」和「协议层的必要说明」互不污染。
+        self.system_extra = ""
 
     async def chat(
         self,
@@ -83,11 +86,12 @@ class LLMBroker:
             turns = [{"role": "user", "content": messages}]
         else:
             turns = [dict(m) for m in messages]
-        if not self.system_prompt:
+        system = "\n\n".join(part for part in (self.system_prompt, self.system_extra) if part)
+        if not system:
             return turns
         if any(m.get("role") == "system" for m in turns):
             return turns
-        return [{"role": "system", "content": self.system_prompt}, *turns]
+        return [{"role": "system", "content": system}, *turns]
 
     def describe(self) -> dict[str, Any]:
         return {
