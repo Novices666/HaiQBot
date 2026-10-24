@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,17 @@ from haiqbot.webui.api.common import Ctx
 from haiqbot.webui.auth import COOKIE_NAME, Auth
 
 log = get_logger(__name__)
+
+# Windows 的注册表里常常没有 .woff2/.woff 的 MIME 映射，StaticFiles 会退回
+# application/octet-stream；浏览器（尤其 Firefox）会因此拒绝加载自托管字体。
+# 这里显式登记，保证跨平台行为一致。
+for _ext, _mime in (
+    (".woff2", "font/woff2"),
+    (".woff", "font/woff"),
+    (".ttf", "font/ttf"),
+    (".otf", "font/otf"),
+):
+    mimetypes.add_type(_mime, _ext)
 
 _DIST = Path(__file__).parent / "dist"
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}

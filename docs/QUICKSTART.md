@@ -64,6 +64,24 @@ uv run haiq doctor        # 自检：依赖、凭据、频道、插件来源
 uv run haiq run --demo    # 不连 QQ、不烧额度的本地演示
 ```
 
+### Windows：一条命令起整条链路
+
+本机直跑时，Docker（NapCat）+ bot 可以用一个脚本拉起：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\dev-up.ps1
+```
+
+它按顺序做四件事：起 Docker Desktop（已在跑就跳过）→ 起 `napcat` 容器（同名容器已存在
+就直接复用，不重建）→ 等 OneBot WS `3001` 监听 → 后台拉起 `haiq run` 并等 WebUI 就绪。
+
+| 参数 | 作用 |
+| :--- | :--- |
+| `-SkipDocker` | 容器已在跑，只起 bot |
+| `-SkipBot` | 只起容器，不起 bot |
+
+口令不会出现在命令行：脚本用 `set /p` 把 `secrets\.vault-pass.txt` 读进子进程环境变量。
+
 浏览器打开 <http://127.0.0.1:8080>，用面板令牌登录：
 
 ```bash

@@ -44,9 +44,21 @@ services:
       # 容器内直接跑 root，避免 Windows 绑定挂载的属主问题
       NAPCAT_UID: "0"
       NAPCAT_GID: "0"
+      # QQ 号。留空则启动后在 6099 面板扫码登录
+      ACCOUNT: "${QQ_ACCOUNT:-}"
+      # 关键：清空代理。宿主机开着系统代理 / TUN 时，Docker 出站会被接管，
+      # NapCat 上传图片会失败并报 rich media transfer failed（文字消息不受影响）。
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      NO_PROXY: "localhost,127.0.0.1,host.docker.internal,*.local"
+      no_proxy: "localhost,127.0.0.1,host.docker.internal,*.local"
     ports:
       # OneBot v11 正向 WebSocket —— haiqbot 连这个
       - "127.0.0.1:3001:3001"
+      # OneBot v11 HTTP API —— onebot.mode=http / sse 时走这里
+      - "127.0.0.1:3000:3000"
       # NapCat WebUI —— 扫码登录/改配置
       - "127.0.0.1:6099:6099"
     volumes:

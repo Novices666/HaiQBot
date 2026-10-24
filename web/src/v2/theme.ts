@@ -23,8 +23,10 @@ export function buildTheme(mode: ThemeMode): ThemeConfig {
       borderRadius: 6,
       fontSize: 13,
       controlHeight: 30,
+      // Inter / JetBrains Mono 由 main.tsx 自托管引入（latin 子集）；
+      // 中文交给系统字体栈，避免把 MB 级 CJK 字体塞进产物。
       fontFamily:
-        '"Inter","MiSans VF","MiSans",-apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif',
+        '"Inter",-apple-system,"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif',
       fontFamilyCode: '"JetBrains Mono","Cascadia Code",Consolas,"Courier New",monospace',
     },
     components: {

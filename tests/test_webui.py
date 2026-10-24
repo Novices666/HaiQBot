@@ -756,3 +756,18 @@ def test_channels_api_allowed_fields_match_store():
     from haiqbot.webui.api.channels import ALLOWED_FIELDS
 
     assert ALLOWED_FIELDS == set(Store._CHANNEL_FIELDS)
+
+
+def test_font_mime_types_registered():
+    """自托管字体必须按 font/* 下发。
+
+    Windows 注册表常缺 .woff2 映射，不显式登记就会回落 application/octet-stream，
+    部分浏览器因此拒绝加载 -> 面板静默退回系统字体。
+    """
+
+    import mimetypes
+
+    import haiqbot.webui.server  # noqa: F401  # 导入即登记
+
+    assert mimetypes.guess_type("a.woff2")[0] == "font/woff2"
+    assert mimetypes.guess_type("a.woff")[0] == "font/woff"
