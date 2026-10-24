@@ -18,6 +18,9 @@ from typing import TYPE_CHECKING, Any
 from .channel import ChannelId
 from .segment import Segment, segments_to_text
 
+#: 审计里保留的回复正文前缀长度。够定位「它到底怎么答的」，又不至于把群聊内容整段落库。
+_PREVIEW_CHARS = 80
+
 if TYPE_CHECKING:
     from haiqbot.adapters.base import Adapter
 
@@ -82,6 +85,11 @@ class Reply:
         self.deadline = deadline
         self.plugin_id = plugin_id
         self._seq = 0
+        # 审计用：这次事件里我们到底发了什么（只留摘要，不落全文）
+        self._sent_count = 0
+        self._sent_texts: list[str] = []
+        self._sent_kinds: list[str] = []
+        self._sent_chars = 0
 
     # -- 状态查询 --------------------------------------------------------- #
     def remaining(self) -> float | None:
@@ -109,6 +117,7 @@ class Reply:
     async def _send(self, segments: list[Segment]) -> str | None:
         if self.expired():
             return None
+        self._note_sent(segments)
         return await self.adapter.send_message(
             self.channel,
             segments,
@@ -116,6 +125,28 @@ class Reply:
             seq=self._next_seq(),
             plugin_id=self.plugin_id,
         )
+
+    def _note_sent(self, segments: list[Segment]) -> None:
+        """记下「发了什么」的摘要（审计用）。只留文本前若干字 + 长度，不落全文。"""
+        self._sent_count += 1
+        for seg in segments:
+            self._sent_kinds.append(str(getattr(seg, "kind", "unknown")))
+            data = getattr(seg, "data", None) or {}
+            text = data.get("text") if isinstance(data, dict) else None
+            if isinstance(text, str) and text:
+                self._sent_texts.append(text)
+                self._sent_chars += len(text)
+
+    def summary(self) -> dict[str, Any] | None:
+        """给审计的一句话摘要：发了几条、什么类型、正文多长、前 N 字。"""
+        if not self._sent_count:
+            return None
+        return {
+            "messages": self._sent_count,
+            "kinds": list(dict.fromkeys(self._sent_kinds)),
+            "chars": self._sent_chars,
+            "preview": "\n".join(self._sent_texts)[:_PREVIEW_CHARS],
+        }
 
     async def text(self, content: str) -> str | None:
         return await self._send([Segment.text(content)])
@@ -186,4 +217,8 @@ class Reply:
         "plugin_id",
         "source_msg_id",
         "_seq",
+        "_sent_count",
+        "_sent_texts",
+        "_sent_kinds",
+        "_sent_chars",
     )

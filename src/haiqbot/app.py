@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import json
 import uuid
 from pathlib import Path
 from typing import Any
@@ -286,12 +287,15 @@ class App:
             if int(pctx.extra.get("charges", 0)) == 0:
                 await self.runtime.quota.consume(actor_id=event.actor.id, channel=event.channel)
 
+        # 审计里带一句回复摘要（前 80 字 + 长度）：出事时不用再靠翻 QQ 群记录
+        summary = reply.summary() if reply is not None else None
         await self.runtime.audit.record(
             trace_id=event.trace_id,
             plugin_id=pctx.plugin_id,
             action=f"{action}:{pctx.stop_reason}" if pctx.stopped else action,
             channel=event.channel,
             actor=event.actor.id,
+            detail=json.dumps({"reply": summary}, ensure_ascii=False) if summary else None,
         )
 
     # -- 生命周期 --------------------------------------------------------- #

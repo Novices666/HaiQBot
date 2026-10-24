@@ -52,7 +52,11 @@ uv run haiq webui token --generate   # 生成并写入 vault，终端里显示�
 把令牌粘到侧栏底部的「写操作令牌」框。忘记就重新生成 —— 旧令牌立即失效，**不需要重启**。
 每次写操作都会落一条 `control:*` 审计。
 
-插件参数写到 `haiq.toml` 的 `[plugins.<id>]` 并热更新内存；如果某个插件在 `on_load`
+每条被处理的事件也会落一条审计（`handled` / `unhandled` / `stopped:<原因>`），`detail` 里带
+**一句回复摘要**：发了几条、消息类型、正文总长度，以及正文**前 80 字**。留摘要不留全文 ——
+出问题能查「它到底怎么答的」，又不至于把群聊内容整段落库。
+
+插件参数写到 `data/plugins/<插件id>.toml` 并热更新内存；如果某个插件在 `on_load`
 里读参数，点它的「重载」按钮即可。想彻底关掉写能力：`[webui] write_enabled = false`。
 
 ---
