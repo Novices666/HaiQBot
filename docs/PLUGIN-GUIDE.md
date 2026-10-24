@@ -220,9 +220,49 @@ async def draw(self, ctx, prompt: str): ...
 | `ctx.schedule` | 定时任务（需声明 `schedule`） |
 | `ctx.introspect` | 只读：查看所有插件与命令 |
 | `ctx.log` | 已挂脱敏 processor 的结构化 logger |
-| `ctx.config` | `haiq.toml` 里 `[plugins.<你的 id>]` 的内容 |
+| `ctx.config` | 插件自己的配置（`data/plugins/<插件id>.toml`，见下一节） |
 
 **没有**：vault、env、任何密钥。
+
+## 按功能粒度开关（`feature`）
+
+频道开关的最小单位不是插件，而是 `插件id:feature`。想让「这群只许对话、不许画图」能做到，
+就得在装饰器上声明 `feature=`：
+
+```python
+@on_command("问", feature="ask")
+async def ask(self, ctx: Context, q: str = "") -> None: ...
+
+
+
+
+
+
+
+
+
+
+
+@on_message(require_at=True, feature="ask")
+async def talk(self, ctx: Context) -> None: ...
+
+
+@on_command("画图", feature="draw")
+async def draw(self, ctx: Context, prompt: str = "") -> None: ...
+```
+
+之后频道配置有两种写法：
+
+| 写法 | 含义 |
+| :--- | :--- |
+| `assistant` | 整个插件的所有规则都放行 |
+| `assistant:ask,assistant:reset` | 只放行声明了 `ask` / `reset` 的规则，`draw` 静默不响应 |
+
+三条规矩：
+
+- **不写 `feature` 就等于没有独立开关**，只能整插件开/关；
+- feature 名是**数据契约**：改名会让老配置失效，`haiq channels verify` 报 `unknown_feature`；
+- 同一插件里可以复用（`/问` 和 `@机器人` 都归 `ask`）。
 
 ## 在控制台里配置你的插件
 

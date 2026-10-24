@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any
 
 from haiqbot.plugin_api import (
@@ -38,6 +39,28 @@ DEFAULT_HISTORY_TURNS = 6
 
 #: hybrid 模式下"明确要图"的硬规则。只在 router_mode=hybrid 时使用。
 _DRAW_HINT = re.compile(r"(画|绘制|生成|来)(一|个|张|幅)?.*(图|画|插画|头像|壁纸|海报|表情包)")
+
+# --------------------------------------------------------------------------- #
+# 统计：面板页用。按天存一条 kv 记录，重启不丢，跨天自动归零。
+# --------------------------------------------------------------------------- #
+
+_STATS_KEY = "stats:daily"
+
+
+def _today() -> str:
+    return time.strftime("%Y-%m-%d")
+
+
+def _blank_stats() -> dict[str, Any]:
+    return {
+        "date": _today(),
+        "draw_ok": 0,
+        "draw_fail": 0,
+        "ask_ok": 0,
+        "ask_fail": 0,
+        "blocked": 0,
+        "users": {},
+    }
 
 
 class Assistant(Plugin):
@@ -266,18 +289,25 @@ class Assistant(Plugin):
 
     # -- 入口 ------------------------------------------------------------- #
 
-    @on_command("问", aliases=["ask", "ai"], usage="问 <问题>", priority=15, timeout=180)
+    @on_command("问", aliases=["ask", "ai"], usage="问 <问题>", priority=15, timeout=180, feature="ask")
     async def ask(self, ctx: Context, question: str = "") -> None:
         await self._handle(ctx, question, use_history=False)
 
-    @on_message(require_at=True, priority=-30, block=True, timeout=180)
+    @on_message(require_at=True, priority=-30, block=True, timeout=180, feature="ask")
     async def talk(self, ctx: Context) -> None:
         text = ctx.event.text.strip() if ctx.event else ""
         if not text or text.startswith("/"):
             return
         await self._handle(ctx, text, use_history=True)
 
-    @on_command("画图", aliases=["draw", "画画"], usage="画图 <描述>", priority=20, timeout=180)
+    @on_command(
+        "画图",
+        aliases=["draw", "画画"],
+        usage="画图 <描述>",
+        priority=20,
+        timeout=180,
+        feature="draw",
+    )
     async def draw(self, ctx: Context, prompt: str = "") -> None:
         """强制出图：不过路由、不问模型，只做尺寸解析与审查。"""
         text = (prompt or "").strip()
@@ -296,7 +326,7 @@ class Assistant(Plugin):
             return
         await self._generate_and_send(ctx, prompt_text, size, size_note=size_note)
 
-    @on_command("重置对话", aliases=["reset"], usage="重置对话", priority=15, timeout=30)
+    @on_command("重置对话", aliases=["reset"], usage="重置对话", priority=15, timeout=30, feature="reset")
     async def reset(self, ctx: Context) -> None:
         if ctx.kv is None:
             await ctx.reply.text("kv 能力未启用，无法重置上下文")
@@ -336,6 +366,7 @@ class Assistant(Plugin):
             answer = await llm.chat(messages)
         except Exception as exc:  # noqa: BLE001
             ctx.log.exception("assistant_chat_failed", error_type=type(exc).__name__)
+            await self._bump(ctx, "ask_fail", actor=self._actor(ctx))
             await ctx.reply.text(f"❌ 对话失败：{safe_reason(exc)}")
             return
         if await self._blocked_output(ctx, answer):
@@ -343,6 +374,7 @@ class Assistant(Plugin):
         if use_history:
             await self._remember(ctx, text, answer)
         await ctx.reply.text(answer)
+        await self._bump(ctx, "ask_ok", actor=self._actor(ctx), kind="ask")
 
     async def _hybrid(self, ctx: Context, text: str, *, use_history: bool) -> None:
         """hybrid：硬规则命中才出图，否则纯聊天。不花额外的判断调用。"""
@@ -372,6 +404,7 @@ class Assistant(Plugin):
             raw = await llm.chat(messages)
         except Exception as exc:  # noqa: BLE001
             ctx.log.exception("assistant_route_failed", error_type=type(exc).__name__)
+            await self._bump(ctx, "ask_fail", actor=self._actor(ctx))
             await ctx.reply.text(f"❌ 对话失败：{safe_reason(exc)}")
             return
 
@@ -385,6 +418,7 @@ class Assistant(Plugin):
             if use_history:
                 await self._remember(ctx, text, answer)
             await ctx.reply.text(answer)
+            await self._bump(ctx, "ask_ok", actor=self._actor(ctx), kind="ask")
             return
 
         ctx.log.info(
@@ -424,6 +458,7 @@ class Assistant(Plugin):
             reply = decision.reply or ""
             message = f"{reply}\n{clarify}".strip() if clarify else reply
             await ctx.reply.text(message or clarify or "没太听明白，能再说一次吗？")
+            await self._bump(ctx, "ask_ok", actor=self._actor(ctx), kind="ask")
             return
 
         answer = decision.reply or "（没有生成回复）"
@@ -432,6 +467,7 @@ class Assistant(Plugin):
         if use_history:
             await self._remember(ctx, text, answer)
         await ctx.reply.text(answer)
+        await self._bump(ctx, "ask_ok", actor=self._actor(ctx), kind="ask")
 
     # -- 生图 ------------------------------------------------------------- #
 
@@ -488,11 +524,13 @@ class Assistant(Plugin):
             ref = await image.generate(prompt, size=size)
         except Exception as exc:  # noqa: BLE001
             ctx.log.exception("assistant_image_failed", error_type=type(exc).__name__)
+            await self._bump(ctx, "draw_fail", actor=self._actor(ctx))
             await ctx.reply.text(f"❌ 生成失败：{safe_reason(exc)}")
             return
 
         if ctx.reply.almost_expired(margin=5.0):
             ctx.log.warning("assistant_window_closed", media_id=ref.media_id)
+            await self._bump(ctx, "draw_fail", actor=self._actor(ctx))
             await ctx.reply.text(f"出图太慢，窗口已关闭（图已存在媒体库，ID={ref.media_id}）")
             return
 
@@ -500,12 +538,14 @@ class Assistant(Plugin):
             await ctx.reply.image(ref)
         except Exception as exc:  # noqa: BLE001
             ctx.log.exception("assistant_send_failed", error_type=type(exc).__name__, media_id=ref.media_id)
+            await self._bump(ctx, "draw_fail", actor=self._actor(ctx))
             await ctx.reply.text(
                 f"❌ 发送失败：图片已生成（媒体库 ID={ref.media_id}），但发到群里失败：{safe_reason(exc)}"
             )
             return
         if size_note:
             ctx.log.info("assistant_image_sent", media_id=ref.media_id, size=size, note=size_note)
+        await self._bump(ctx, "draw_ok", actor=self._actor(ctx), kind="draw")
 
     # -- 审查 ------------------------------------------------------------- #
 
@@ -559,6 +599,7 @@ class Assistant(Plugin):
         if hit is None:
             return False
         ctx.log.warning("assistant_output_blocked", category=hit.category)
+        await self._bump(ctx, "blocked", actor=self._actor(ctx))
         await ctx.reply.text("🙅 这条回答不合适，已拦截。换个问法试试？")
         return True
 
@@ -567,6 +608,7 @@ class Assistant(Plugin):
         seconds = int(self._float_cfg(ctx, "mute_seconds", 600))
         actor = ctx.event.actor.id if ctx.event else ""
         channel = ctx.event.channel if ctx.event else None
+        await self._bump(ctx, "blocked", actor=self._actor(ctx))
 
         if bool(ctx.config.get("recall_on_hit", False)) and channel is not None:
             msg_id = str(getattr(ctx.event, "msg_id", "") or "")
@@ -660,3 +702,128 @@ class Assistant(Plugin):
         history.append({"role": "assistant", "content": answer})
         limit = self._history_limit(ctx)
         await ctx.kv.set(key, json.dumps(history[-limit:] if limit else [], ensure_ascii=False))
+
+    # -- 统计与面板 ------------------------------------------------------- #
+
+    def _actor(self, ctx: Context) -> str:
+        event = getattr(ctx, "event", None)
+        return str(getattr(getattr(event, "actor", None), "id", "") or "")
+
+    @property
+    def _stats(self) -> dict[str, Any]:
+        """今日统计。跨天自动归零；首次访问时初始化。"""
+        state = getattr(self, "_stats_state", None)
+        if not isinstance(state, dict) or state.get("date") != _today():
+            state = _blank_stats()
+            self._stats_state = state
+        return state
+
+    async def on_load(self, ctx: Context) -> None:
+        """把今天已落盘的统计读回来 —— 重启不该把「今日」清零。"""
+        self._kv_ctx = ctx  # panel_action 拿不到 ctx，这里留个句柄用于清零落盘
+        if ctx.kv is None:
+            return
+        try:
+            raw = await ctx.kv.get(_STATS_KEY, "")
+            saved = json.loads(raw) if raw else None
+        except Exception as exc:  # noqa: BLE001
+            ctx.log.warning("assistant_stats_load_failed", error_type=type(exc).__name__)
+            return
+        if not isinstance(saved, dict) or saved.get("date") != _today():
+            return  # 昨天的记录：不读，等下一次写入时覆盖
+        merged = _blank_stats()
+        merged.update({k: v for k, v in saved.items() if k in merged})
+        if not isinstance(merged.get("users"), dict):
+            merged["users"] = {}
+        self._stats_state = merged
+
+    async def _bump(self, ctx: Context, field: str, *, actor: str = "", kind: str = "") -> None:
+        """记一次。先写内存再写穿 kv；kv 出错绝不能影响主流程。"""
+        stats = self._stats
+        stats[field] = int(stats.get(field, 0)) + 1
+        if actor and kind:
+            users = stats.get("users")
+            if not isinstance(users, dict):
+                users = {}
+                stats["users"] = users
+            row = users.get(actor)
+            if not isinstance(row, dict):
+                row = {"ask": 0, "draw": 0}
+                users[actor] = row
+            row[kind] = int(row.get(kind, 0)) + 1
+        await self._save_stats(ctx)
+
+    async def _save_stats(self, ctx: Context) -> None:
+        if ctx.kv is None:
+            return
+        try:
+            await ctx.kv.set(_STATS_KEY, json.dumps(self._stats, ensure_ascii=False))
+        except Exception as exc:  # noqa: BLE001
+            ctx.log.warning("assistant_stats_save_failed", error_type=type(exc).__name__)
+
+    def panel_meta(self) -> dict[str, Any]:
+        return {"title": "助手 · 今日用量", "order": 20}
+
+    async def panel_page(self, panel: Any) -> dict[str, Any]:
+        stats = self._stats
+        cfg = getattr(panel, "config", None) or {}
+        rows = [
+            {
+                "user": str(uid),
+                "draw": int(row.get("draw", 0)),
+                "ask": int(row.get("ask", 0)),
+            }
+            for uid, row in (stats.get("users") or {}).items()
+            if isinstance(row, dict)
+        ]
+        rows.sort(key=lambda r: (-r["draw"], -r["ask"], r["user"]))
+        top = [{**r, "total": r["draw"] + r["ask"]} for r in rows[:10]]
+        return {
+            "title": "助手",
+            "sections": [
+                {
+                    "type": "text",
+                    "text": f"统计日期 {stats['date']}（本地时区；重启不丢，跨天自动归零）。"
+                    "出图的「成功」与「失败」分开记：失败可能是模型没出图，"
+                    "也可能是图出来了但发不进群 —— 后者看审计里的 assistant_send_failed。",
+                },
+                {
+                    "type": "field_group",
+                    "title": "今日",
+                    "fields": [
+                        {"label": "出图成功", "value": stats["draw_ok"]},
+                        {"label": "出图失败", "value": stats["draw_fail"]},
+                        {"label": "对话回复", "value": stats["ask_ok"]},
+                        {"label": "对话失败", "value": stats["ask_fail"]},
+                        {"label": "审查命中", "value": stats["blocked"]},
+                        {"label": "路由方式", "value": str(cfg.get("router_mode", "auto"))},
+                    ],
+                },
+                {
+                    "type": "readonly_table",
+                    "title": "Top 用户（按出图次数）",
+                    "columns": [
+                        {"key": "user", "title": "用户"},
+                        {"key": "draw", "title": "出图"},
+                        {"key": "ask", "title": "对话"},
+                        {"key": "total", "title": "合计"},
+                    ],
+                    "rows": top or [{"user": "（今天还没有人用）", "draw": 0, "ask": 0, "total": 0}],
+                },
+                {
+                    "type": "action_button",
+                    "label": "清零今日统计",
+                    "action": "reset",
+                    "confirm": "清零今天的统计？",
+                },
+            ],
+        }
+
+    async def panel_action(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if action != "reset":
+            raise KeyError(action)
+        self._stats_state = _blank_stats()
+        ctx = getattr(self, "_kv_ctx", None)
+        if ctx is not None:
+            await self._save_stats(ctx)
+        return {"message": "今日统计已清零"}
