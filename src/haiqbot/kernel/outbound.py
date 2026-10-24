@@ -41,7 +41,8 @@ T = TypeVar("T")
 # - retcode 1200/1201/1202：OneBot 实现里常见的"发送过于频繁"
 # - 文本里带"频繁 / 太快 / 风控 / rate limit / too fast"
 _RATE_HINTS = ("频繁", "太快", "发送过快", "风控", "rate limit", "too fast", "too frequent", "frequency")
-_RATE_RETCODES = {1200, 1201, 1202}
+# 1200-1202 = OneBot 侧风控/超频；22009 = QQ 官方「msg limit exceed」
+_RATE_RETCODES = {1200, 1201, 1202, 22009}
 
 
 class OutboundBusy(HaiqError):

@@ -117,7 +117,8 @@ adapter 归一化 → ① trace(注入 trace_id) → ② dedupe → ③ scope �
 
 - OneBot：读到本地 `path` → base64 内嵌（2.1 MB 图 → 2.8 MB 消息）；读不到或超
   `image_max_bytes` → 退回 URL
-- 官方：只认 URL，`path` 被忽略
+- 官方：只认 URL（`/files` 的 `url` 必填，`file_data` 官方标注未支持）；只有 `path` / `media_id`
+  时直接抛 `MediaSendError`，**不静默丢图** —— 群里「发出去了但没图」比报错更难查
 
 `haiq.toml` 的 `[onebot] image_transport` 可强制 `base64` 或 `url`。
 

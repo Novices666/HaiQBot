@@ -13,6 +13,7 @@ import pytest
 
 from haiqbot.adapters.official import MSG_MEDIA, MSG_TEXT, OfficialAdapter, OfficialClient
 from haiqbot.core.channel import ChannelId, ChannelKind
+from haiqbot.core.errors import AdapterError, MediaSendError
 from haiqbot.core.reply import Reply
 from haiqbot.core.segment import Segment
 
@@ -182,3 +183,170 @@ async def test_unsupported_channel_raises() -> None:
         await adapter.send_message(
             ChannelId("official", ChannelKind.GUILD_CHANNEL, "C1"), [Segment.text("x")]
         )
+
+
+# --------------------------------------------------------------------------- #
+# 官方通道的失败语义与健康度（代码层面适配；未真机验证，等 AppID/AppSecret）
+# --------------------------------------------------------------------------- #
+
+
+def make_adapter_with(handler) -> OfficialAdapter:
+    client = OfficialClient(
+        app_id="app123",
+        secret_provider=lambda: "app-secret-value",
+        api_base=API,
+        token_url=TOKEN,
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    return OfficialAdapter(client=client)
+
+
+async def test_media_without_url_raises_instead_of_silently_dropping() -> None:
+    """只有本地路径的图片：官方 /files 的 url 必填、file_data 未支持 → 明确报错。"""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if str(request.url) == TOKEN:
+            return httpx.Response(200, json={"access_token": "t", "expires_in": "7200"})
+        return httpx.Response(200, json={"id": "M"})
+
+    adapter = make_adapter_with(handler)
+    with pytest.raises(MediaSendError) as exc:
+        await adapter.send_message(
+            ChannelId("official", ChannelKind.GROUP, "G1"),
+            [Segment.image(path="data/media/a.png")],
+            reply_to="IN",
+            seq=1,
+        )
+    assert "公网 URL" in str(exc.value)
+    assert not [u for u in calls if u.endswith("/files")], "没有 URL 就不该去上传"
+
+
+async def test_media_fetch_failure_maps_to_media_error() -> None:
+    """304082/304083 = 平台拉不到我们给的 URL：不重试，报「发送失败」。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == TOKEN:
+            return httpx.Response(200, json={"access_token": "t", "expires_in": "7200"})
+        if request.url.path.endswith("/files"):
+            return httpx.Response(400, json={"code": 304082, "message": "upload media info fail"})
+        return httpx.Response(200, json={"id": "M"})
+
+    adapter = make_adapter_with(handler)
+    with pytest.raises(MediaSendError) as exc:
+        await adapter.send_message(
+            ChannelId("official", ChannelKind.GROUP, "G1"),
+            [Segment.image(url="http://127.0.0.1:8090/i/abc")],
+            reply_to="IN",
+            seq=1,
+        )
+    assert "304082" in str(exc.value)
+    assert "公网可达" in str(exc.value)
+
+
+async def test_rate_limit_code_is_retryable() -> None:
+    """22009 是限速而非媒体问题：应被出站闸门判成可重试。"""
+    from haiqbot.kernel.outbound import is_rate_limited
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == TOKEN:
+            return httpx.Response(200, json={"access_token": "t", "expires_in": "7200"})
+        return httpx.Response(400, json={"code": 22009, "message": "msg limit exceed"})
+
+    adapter = make_adapter_with(handler)
+    with pytest.raises(AdapterError) as exc:
+        await adapter.send_message(
+            ChannelId("official", ChannelKind.GROUP, "G1"), [Segment.text("hi")], reply_to="IN", seq=1
+        )
+    assert not isinstance(exc.value, MediaSendError)
+    assert is_rate_limited(exc.value) is True
+
+
+async def test_media_upload_without_file_info_is_media_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == TOKEN:
+            return httpx.Response(200, json={"access_token": "t", "expires_in": "7200"})
+        if request.url.path.endswith("/files"):
+            return httpx.Response(200, json={"file_uuid": "u1", "ttl": 0})
+        return httpx.Response(200, json={"id": "M"})
+
+    adapter = make_adapter_with(handler)
+    with pytest.raises(MediaSendError):
+        await adapter.send_message(
+            ChannelId("official", ChannelKind.GROUP, "G1"),
+            [Segment.image(url="https://example.com/a.png")],
+            reply_to="IN",
+            seq=1,
+        )
+
+
+def test_health_reports_readiness() -> None:
+    adapter = OfficialAdapter(client=OfficialClient(app_id="a", secret_provider=lambda: "s"))
+    assert adapter.health()["connected"] is None, "没 start 过不该声称已连接"
+    adapter.mark_started()
+    assert adapter.health()["connected"] is False
+    adapter._ready = True
+    health = adapter.health()
+    assert health["connected"] is True
+    assert health["mode"] == "ws"
+
+
+async def test_declares_only_implemented_actions() -> None:
+    adapter = OfficialAdapter(client=OfficialClient(app_id="a", secret_provider=lambda: "s"))
+    assert "can_send_image" in adapter.actions
+    assert await adapter.can_send_image() is True
+    assert await adapter.can_send_record() is True
+    # 官方没有群管理接口，绝不能声称支持（插件会据此写降级文案）
+    for name in ("mute", "recall", "kick", "member_list"):
+        assert name not in adapter.actions
+
+
+async def test_group_at_content_leading_space_stripped() -> None:
+    """`@机器人 /echo hi` 的 content 是 `" /echo hi"`：不剥前导空白就命中不了命令。"""
+    from types import SimpleNamespace
+
+    events = []
+
+    async def push(event) -> None:
+        events.append(event)
+
+    adapter = OfficialAdapter(client=OfficialClient(app_id="a", secret_provider=lambda: "s"), push=push)
+    message = SimpleNamespace(
+        id="MID",
+        group_openid="G1",
+        content=" /echo hi",
+        timestamp="2026-01-01T00:00:00+08:00",
+        author=SimpleNamespace(member_openid="U1"),
+    )
+    await adapter._on_group(message)
+
+    assert len(events) == 1
+    event = events[0]
+    assert event.segments[0].data["text"] == "/echo hi"
+    assert event.msg_id == "MID"
+    assert event.at_bot is True
+    assert event.raw["event"] == "GROUP_AT_MESSAGE_CREATE"
+
+
+async def test_botpy_client_wiring_matches_sdk() -> None:
+    """和真 SDK 对一遍：intents 位、handler 名。
+
+    botpy 的 dispatch 规则是 `method = "on_" + 事件名`（botpy/client.py），
+    方法名差一个字事件就静默丢失 —— 这种错在真机上表现为「bot 上线了但不回话」，
+    离线能测就测掉。没装 qq-botpy 时整体 skip。
+    """
+    botpy = pytest.importorskip("botpy")
+
+    from haiqbot.adapters.official import INTENT_PUBLIC_MESSAGES
+
+    adapter = OfficialAdapter(
+        client=OfficialClient(app_id="a", secret_provider=lambda: "s"),
+        intents=INTENT_PUBLIC_MESSAGES,
+    )
+    client = adapter._make_botpy_client(botpy)
+
+    # botpy 的 Client 把 intents 存成整数（intents.value），不是对象
+    assert int(client.intents) & INTENT_PUBLIC_MESSAGES, "群@ / 单聊的 intent 位没开"
+    for name in ("on_ready", "on_group_at_message_create", "on_c2c_message_create"):
+        assert callable(getattr(client, name, None)), f"缺 handler：{name}"

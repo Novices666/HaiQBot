@@ -257,19 +257,28 @@ def test_official_media_file_types() -> None:
     assert uploads[2][0] == "https://x/a.silk"
 
 
-def test_official_media_without_url_is_skipped() -> None:
+def test_official_media_without_url_is_reported_not_skipped() -> None:
+    """只有 path 没有 url：官方 /files 的 url 必填 → 必须报错，不能静默丢图。
+
+    （旧行为是 log.warning + continue，群里看起来「发成功了」，实际图没进群。）
+    """
+    import asyncio
+
+    import pytest
+
+    from haiqbot.core.errors import MediaSendError
+
     payloads: list[dict] = []
     uploads: list[tuple[str, dict]] = []
     adapter = _fake_official(payloads, uploads)
-    import asyncio
 
-    # 只有 path 没有 url：官方必须给 URL（要它自己去拉），所以跳过而不是瞎猜
-    asyncio.run(
-        adapter._raw_send(
-            ChannelId("official", ChannelKind.GROUP, "g1"),
-            [Segment.record(path="/tmp/a.silk")],
+    with pytest.raises(MediaSendError):
+        asyncio.run(
+            adapter._raw_send(
+                ChannelId("official", ChannelKind.GROUP, "g1"),
+                [Segment.record(path="/tmp/a.silk")],
+            )
         )
-    )
     assert uploads == []
 
 

@@ -4,11 +4,16 @@
 - `OfficialClient`：纯 httpx 的 API 客户端（token 管理 + 群/C2C 发消息 + 富媒体上传）
 - `OfficialAdapter`：用 botpy 收 WS 事件，用 `OfficialClient` 发消息
 
-平台硬约束（已核实官方文档）：
-- 主动推送自 2025-04-21 起下线 → 只能被动回复
-- 群聊被动窗口 300 秒，同一 msg_id 最多回 5 次 → `msg_seq` 必须递增
-- 富媒体必须先 `/files` 上传拿 `file_info`，再 `msg_type=7` 发出去
+平台硬约束（已核实官方文档 /docs 里的调研笔记）：
+- 主动推送自 2025-04-21 起下线 → 只能被动回复（带 `msg_id` 或 `event_id`）
+- 群聊被动窗口 300 秒、单聊 60 分钟，同一 msg_id 最多回 5 次 → `msg_seq` 必须递增
+  （相同的 msg_id + msg_seq 重复发送会失败）
+- 富媒体必须先 `/files` 上传拿 `file_info`（`srv_send_msg=false`，否则占主动消息频次），
+  再以 `msg_type=7` 发出去；`/files` 的 `url` **必填**，`file_data` 官方标注【暂未支持】
+  → 本地图片必须由我们提供公网 URL（`[media] public_base_url` + `serve_port`）
 - `msg_type=7` 时 `content` 必须填一个空格（官方已知问题）
+- 错误码：22009 = 发送超频（可重试）；304082/304083 = 平台拉不到我们给的媒体 URL
+  （换个可达地址才有意义，重试同一个地址没用）
 """
 
 from __future__ import annotations
@@ -20,7 +25,7 @@ from typing import Any
 
 from haiqbot.adapters.base import Adapter, PushFn
 from haiqbot.core.channel import Actor, ChannelId, ChannelKind, Role
-from haiqbot.core.errors import AdapterError
+from haiqbot.core.errors import AdapterError, MediaSendError
 from haiqbot.core.event import EventKind, MessageEvent
 from haiqbot.core.reply import PlatformCapabilities
 from haiqbot.core.segment import Segment, SegmentKind
@@ -36,11 +41,28 @@ FILE_TYPE_IMAGE = 1
 FILE_TYPE_VIDEO = 2
 FILE_TYPE_AUDIO = 3
 
+# 注意：官方返回的 code 是数字，但我们统一按字符串比较（避免 304082 vs "304082" 的坑）
+CODES_MEDIA_FETCH_FAILED = frozenset({"304082", "304083"})
+CODE_RATE_LIMIT = 22009
+
+
 _FILE_TYPE = {
     SegmentKind.IMAGE: FILE_TYPE_IMAGE,
     SegmentKind.VIDEO: FILE_TYPE_VIDEO,
     SegmentKind.RECORD: FILE_TYPE_AUDIO,
 }
+
+# intents 1<<25 = 群 @ 消息 + 单聊消息（官方文档：GROUP_AT_MESSAGE_CREATE / C2C_MESSAGE_CREATE）
+INTENT_PUBLIC_MESSAGES = 1 << 25
+
+
+def _clean_at_content(text: str) -> str:
+    """去掉群 @ 消息正文前面那一层空白。
+
+    官方的事件里，`@机器人 /help` 的 content 通常是 `" /help"`（@ 之后留了空格）。
+    只剥前导空白：正文内部的空格原样保留，`/echo a b` 仍拿到 `a b`。
+    """
+    return text.lstrip() if text[:1].isspace() else text
 
 
 class OfficialClient:
@@ -124,19 +146,39 @@ class OfficialClient:
         url = f"{self.api_base}/v2/users/{user_openid}/files"
         return await self._post(url, {"file_type": file_type, "url": media_url, "srv_send_msg": srv_send_msg})
 
+    @staticmethod
+    def _failure(status: int, code: str, message: str) -> AdapterError:
+        """把官方错误码翻成内核认识的异常类型。
+
+        媒体相关的两类（304082/304083）是「平台去拉我们给的 URL，拉不到」——
+        不是限速，也不是我们这边超时。重试同一个地址没有意义，
+        所以抛 `MediaSendError`：出站闸门不重试，插件如实报「发送失败」。
+        """
+        detail = (
+            f"官方接口 {status}" + (f" code={code}" if code else "") + (f"：{message}" if message else "")
+        )
+        if code in CODES_MEDIA_FETCH_FAILED:
+            return MediaSendError(f"{detail}（平台拉不到这个媒体 URL：检查是否公网可达 / 是否需要鉴权）")
+        if code == str(CODE_RATE_LIMIT):
+            return AdapterError(f"{detail}（发送超频，稍后重试）")
+        return AdapterError(detail)
+
     async def _post(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         resp = await self._http().post(url, json=payload, headers=await self._headers())
-        if resp.status_code >= 400:
-            code = ""
-            try:
-                code = str(resp.json().get("code", ""))
-            except Exception:  # noqa: BLE001
-                pass
-            raise AdapterError(f"官方接口 {resp.status_code}{' code=' + code if code else ''}")
         try:
-            return resp.json()
+            body: Any = resp.json()
         except Exception:  # noqa: BLE001
-            return {}
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        code = str(body.get("code") or "")
+        message = str(body.get("message") or "")
+        if resp.status_code >= 400:
+            raise self._failure(resp.status_code, code, message)
+        # 官方个别场景用 HTTP 200 带 code 表示失败
+        if code not in ("", "0"):
+            raise self._failure(resp.status_code, code, message)
+        return body
 
 
 class OfficialAdapter(Adapter):
@@ -146,7 +188,7 @@ class OfficialAdapter(Adapter):
         markdown=True,
         button=True,
         file=False,
-        image_by_url=False,  # 必须走 /files 上传
+        image_by_url=False,  # 不能把 URL 直接塞进消息，必须先 /files 上传换 file_info
         # 语音/视频：官方没有消息段，但 /files 的 file_type 支持 3=语音 2=视频。
         # 注意资源格式：语音要 silk，视频要 mp4，否则平台侧拒收。
         record=True,
@@ -154,11 +196,14 @@ class OfficialAdapter(Adapter):
         window_ttl=300.0,
     )
 
+    # 只声明实现过的：官方没有撤回/禁言/成员列表这类群管理接口
+    actions = frozenset({"can_send_image", "can_send_record"})
+
     def __init__(
         self,
         *,
         client: OfficialClient,
-        intents: int = 1 << 25,
+        intents: int = INTENT_PUBLIC_MESSAGES,
         push: PushFn | None = None,
     ) -> None:
         super().__init__(push)
@@ -166,6 +211,23 @@ class OfficialAdapter(Adapter):
         self.intents = intents
         self._botpy_client: Any = None
         self._task: asyncio.Task[None] | None = None
+        self._ready = False
+        self._last_error: str | None = None
+
+    # -- 健康度 --------------------------------------------------------- #
+    def health(self) -> dict[str, Any]:
+        base = super().health()
+        base.update(
+            {
+                # 没 start 过就别说「已连接」；start 过则以 botpy 的 ready 为准
+                "connected": None if self._started_at is None else self._ready,
+                "mode": "ws",
+                "api_base": self.client.api_base,
+                "intents": self.intents,
+                "last_error": self._last_error,
+            }
+        )
+        return base
 
     # -- 生命周期 --------------------------------------------------------- #
     async def start(self) -> None:
@@ -174,22 +236,44 @@ class OfficialAdapter(Adapter):
         except ImportError as exc:
             raise AdapterError("官方平台适配需要 qq-botpy：`uv sync --extra official` 后再启动") from exc
         self._task = asyncio.create_task(self._run_botpy(), name="haiqbot:official-ws")
+        self.mark_started()
         log.info("official_adapter_started", intents=self.intents)
 
     async def stop(self) -> None:
         if self._task:
             self._task.cancel()
             self._task = None
+        client = self._botpy_client
+        self._botpy_client = None
+        if client is not None and hasattr(client, "close"):
+            try:
+                client.close()
+            except Exception:  # noqa: BLE001
+                log.warning("official_ws_close_failed")
+        self._ready = False
         await self.client.aclose()
 
-    async def _run_botpy(self) -> None:
-        import botpy
+    @staticmethod
+    def _botpy_intents(botpy: Any, mask: int) -> Any:
+        mask = int(mask or 0) or INTENT_PUBLIC_MESSAGES
+        if mask & ~INTENT_PUBLIC_MESSAGES:
+            # 我们只处理群 @ 与单聊；其它位（频道消息等）没有对应的事件处理
+            log.warning("official_intents_ignored_bits", intents=mask)
+        return botpy.Intents(public_messages=bool(mask & INTENT_PUBLIC_MESSAGES))
 
+    def _make_botpy_client(self, botpy: Any) -> Any:
+        """装配 botpy 客户端。单独抽出来是为了能在不连网的情况下测handler 名。
+
+        botpy 的 dispatch 规则是 `method = "on_" + 事件名小写`
+        （`botpy/client.py`），所以方法名必须逐字对上，否则事件静默不到达。
+        """
         adapter = self
 
         class _Client(botpy.Client):
             async def on_ready(self) -> None:  # noqa: D401
                 adapter.bot_id = getattr(getattr(self, "robot", None), "id", None)
+                adapter._ready = True
+                adapter._last_error = None
                 log.info("official_ready", bot=getattr(self, "robot", None) is not None)
 
             async def on_group_at_message_create(self, message: Any) -> None:
@@ -198,31 +282,47 @@ class OfficialAdapter(Adapter):
             async def on_c2c_message_create(self, message: Any) -> None:
                 await adapter._on_c2c(message)
 
-        self._botpy_client = _Client(intents=botpy.Intents(public_messages=True))
+        return _Client(intents=self._botpy_intents(botpy, self.intents))
+
+    async def _run_botpy(self) -> None:
+        import botpy
+
+        self._botpy_client = self._make_botpy_client(botpy)
         try:
             await self._botpy_client.start(appid=self.client.app_id, secret=self.client._secret_provider())
         except asyncio.CancelledError:
+            self._ready = False
             raise
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            self._ready = False
+            self._last_error = f"{type(exc).__name__}: {exc}"
             log.exception("official_ws_error")
 
     # -- 事件归一化 ------------------------------------------------------- #
     async def _on_group(self, message: Any) -> None:
+        msg_id = str(getattr(message, "id", ""))
         await self._emit(
             MessageEvent(
                 kind=EventKind.MESSAGE,
                 channel=ChannelId("official", ChannelKind.GROUP, str(message.group_openid)),
+                # 官方事件不提供群成员身份（owner/admin/member），只能一律当普通用户；
+                # 要认管理员请用 [policy] owners / admins 配置。
                 actor=Actor(id=str(getattr(message.author, "member_openid", "")), role=Role.USER),
-                segments=[Segment.text(str(getattr(message, "content", "") or ""))],
-                msg_id=str(getattr(message, "id", "")),
+                segments=[Segment.text(_clean_at_content(str(getattr(message, "content", "") or "")))],
+                msg_id=msg_id,
                 at_bot=True,
                 bot_id=self.bot_id,
                 window_ttl=300.0,
-                raw={"event": "GROUP_AT_MESSAGE_CREATE"},
+                raw={
+                    "event": "GROUP_AT_MESSAGE_CREATE",
+                    "id": msg_id,
+                    "timestamp": getattr(message, "timestamp", None),
+                },
             )
         )
 
     async def _on_c2c(self, message: Any) -> None:
+        msg_id = str(getattr(message, "id", ""))
         await self._emit(
             MessageEvent(
                 kind=EventKind.MESSAGE,
@@ -231,11 +331,15 @@ class OfficialAdapter(Adapter):
                 ),
                 actor=Actor(id=str(getattr(message.author, "user_openid", ""))),
                 segments=[Segment.text(str(getattr(message, "content", "") or ""))],
-                msg_id=str(getattr(message, "id", "")),
+                msg_id=msg_id,
                 at_bot=True,
                 bot_id=self.bot_id,
                 window_ttl=3600.0,
-                raw={"event": "C2C_MESSAGE_CREATE"},
+                raw={
+                    "event": "C2C_MESSAGE_CREATE",
+                    "id": msg_id,
+                    "timestamp": getattr(message, "timestamp", None),
+                },
             )
         )
 
@@ -279,6 +383,15 @@ class OfficialAdapter(Adapter):
             if seg.kind is SegmentKind.FORWARD:
                 # 官方没有合并转发能力，明确告警（Reply.forward 会先降级成文本）
                 log.warning("official_segment_unsupported", kind=str(seg.kind), plugin=plugin_id)
+        if reply_to is None:
+            # 没有 msg_id 就是主动消息：2025-04-21 起官方不再提供，大概率被拒。
+            # 这里不拦（单聊/未来策略变化可能放行），但必须留痕，别让人以为是我们的 bug。
+            log.warning(
+                "official_send_without_msg_id",
+                channel=f"{channel.kind}:{channel.id}",
+                plugin=plugin_id,
+                hint="主动推送已下线，没有 msg_id 的发送大概率被平台拒绝",
+            )
         message_id: str | None = None
         if markdown.strip():
             # msg_type=2：markdown 正文 + 可选按钮。content 官方要求非空。
@@ -302,8 +415,12 @@ class OfficialAdapter(Adapter):
         for media in media_segments:
             url = media.data.get("url")
             if not url:
-                log.warning("official_media_without_url", kind=str(media.kind), plugin=plugin_id)
-                continue
+                # 不要静默丢图：官方 /files 的 url 必填、file_data 官方未支持，
+                # 本地图片只能靠公网 URL。抛 MediaSendError 让插件如实报「发送失败」。
+                raise MediaSendError(
+                    "官方通道发图必须给公网 URL（/files 的 url 必填，file_data 官方未支持）；"
+                    "本地图片请设置 [media] public_base_url 并开 serve_port，或改用 OneBot 通道"
+                )
             message_id = await self._send_media(
                 channel,
                 url,
@@ -353,10 +470,18 @@ class OfficialAdapter(Adapter):
             raise AdapterError(f"官方适配器不支持该频道类型：{channel.kind}")
         file_info = upload.get("file_info")
         if not file_info:
-            raise AdapterError("富媒体上传未返回 file_info")
+            # 上传没给 file_info = 图片进不了群，这不是普通接口错误
+            raise MediaSendError("富媒体上传没有返回 file_info，消息未发出")
         body: dict[str, Any] = {
             "content": " ",  # 官方已知问题：msg_type=7 时 content 必须非空
             "msg_type": MSG_MEDIA,
             "media": {"file_info": file_info},
         }
         return await self._send_payload(channel, body, reply_to=reply_to, seq=seq)
+
+    # -- 能力探测 --------------------------------------------------------- #
+    async def can_send_image(self, channel: ChannelId | None = None) -> bool:
+        return bool(self.capabilities.image)
+
+    async def can_send_record(self, channel: ChannelId | None = None) -> bool:
+        return bool(self.capabilities.record)
