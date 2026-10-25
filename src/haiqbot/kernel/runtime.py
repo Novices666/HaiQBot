@@ -36,6 +36,8 @@ class Runtime:
     providers: dict[str, Any] = field(default_factory=dict)
     provider_owner: dict[str, str] = field(default_factory=dict)
     # 服务契约：name -> ServiceSpec（提供方声明，消费方核对）
+    # 重建接入端（App.restart_adapters）。面板改了连接参数后调它，省一次重启进程。
+    restart_adapters: Any = None
     service_specs: dict[str, Any] = field(default_factory=dict)
 
     def provide(self, capability: str, service: Any, owner: str, spec: Any = None) -> None:

@@ -139,6 +139,8 @@ class App:
                 adapter.outbound = outbound
             # 让 runtime 看到同一份适配器视图（仪表盘 /api/status 依赖它）
             self.runtime.adapters = self.adapters
+            # 面板改连接参数后要能就地重连，而不是让用户重启进程
+            self.runtime.restart_adapters = self.restart_adapters
 
         return self
 
@@ -321,6 +323,29 @@ class App:
         # 定时任务要等适配器起来再跑，否则第一次执行会「没有适配器」
         if self.runtime and getattr(self.runtime, "jobs", None) is not None:
             await self.runtime.jobs.start()
+
+    async def restart_adapters(self) -> list[str]:
+        """按当前配置重建接入端 —— 面板改完连接参数后调它，省一次重启进程。
+
+        只动适配器：插件、存储、出站闸门跟连接参数无关，重建它们只会让在途消息
+        凭空消失。定时任务也不重启（适配器换了而已，任务照跑）。
+        """
+        for name, adapter in list(self.adapters.items()):
+            try:
+                await adapter.stop()
+                log.info("adapter_stopped", adapter=name)
+            except Exception as exc:  # noqa: BLE001 - 停不下也要继续重建
+                log.warning("adapter_stop_failed", adapter=name, error=type(exc).__name__)
+        self.adapters.clear()
+        await self._setup_adapters(demo=False)
+        for adapter in self.adapters.values():
+            adapter.outbound = self.runtime.outbound
+        self.runtime.adapters = self.adapters
+        for name, adapter in self.adapters.items():
+            await adapter.start()
+            log.info("adapter_started", adapter=name)
+        log.info("adapters_restarted", platforms=list(self.adapters))
+        return list(self.adapters)
 
     def _register_core_jobs(self) -> None:
         """内核自己的周期性维护（媒体 GC + 去重表 GC）。业务定时任务归插件。"""

@@ -42,6 +42,31 @@ def _snapshot(ctx: Ctx) -> str | None:
     return target.name
 
 
+# 接入端字段：改完就地重连，不用重启进程。其余 restart 类字段（webui.* / path.*）办不到。
+_ADAPTER_SECTIONS = {"onebot", "official"}
+
+
+async def _reconnect_if_needed(runtime: Any, result: dict[str, Any]) -> list[str] | None:
+    """连接参数变了就重建适配器。返回重建后的接入端列表；没重建返回 None。"""
+    paths = [str(change.get("path") or "") for change in result.get("changed", [])]
+    if not any(p.split(".", 1)[0] in _ADAPTER_SECTIONS for p in paths):
+        return None
+    hook = getattr(runtime, "restart_adapters", None)
+    if not callable(hook):
+        return None
+    try:
+        platforms = [str(p) for p in await hook()]
+    except Exception as exc:  # noqa: BLE001 - 重连失败不该把已落盘的改动一起吞掉
+        result.setdefault("warnings", []).append(f"重连接入端失败：{exc}（改动已落盘，重启进程后生效）")
+        return None
+    warnings = [w for w in result.get("warnings", []) if "需要额外操作" not in str(w)]
+    warnings.append(
+        "已按新参数重连接入端：" + ("、".join(platforms) if platforms else "无（没有启用的接入端）")
+    )
+    result["warnings"] = warnings
+    return platforms
+
+
 def routes(ctx: Ctx) -> list[Any]:
     from starlette.routing import Route
 
@@ -68,8 +93,13 @@ def routes(ctx: Ctx) -> list[Any]:
             result = control.apply_changes(runtime, body)
         except control.ControlError as exc:
             return fail(exc.status_code, "control_error", exc.message, snapshot=snapshot)
-        await audit(ctx, "config.update", {"changed": result, "snapshot": snapshot})
-        return ok({**result, "snapshot": snapshot})
+        reconnected = await _reconnect_if_needed(runtime, result)
+        await audit(
+            ctx,
+            "config.update",
+            {"changed": result, "snapshot": snapshot, "reconnected": reconnected},
+        )
+        return ok({**result, "snapshot": snapshot, "reconnected": reconnected})
 
     async def history(_request: Any) -> Any:
         rows = []
