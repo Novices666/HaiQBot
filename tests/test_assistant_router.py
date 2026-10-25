@@ -204,39 +204,34 @@ def test_decide_size_rejects_illegal_configured_default() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 提示词自洽：规则与 few-shot 不许互相打架
+# 决策锁：few-shot 是被实测删掉的，不是忘了写
 # --------------------------------------------------------------------------- #
-#: 规则 5 只写了"不超过 30 字"，所以测试也只断言这一条 ——
-#: 规则没写的约束不在测试里假装存在（否则测试会变成第二份谎言）。
-REPLY_MAX_CHARS = 30
 
 
-def test_few_shot_image_replies_obey_the_rules() -> None:
-    """few-shot 必须遵守 SYSTEM_PROMPT 里当前的回复规则。
+def test_few_shot_stays_removed() -> None:
+    """FEW_SHOT 必须保持为空 —— 加回来要拿新证据，不是顺手。
 
-    目前规则只有一条可机械校验的：不超过 30 字。
-    （历史备注：曾要求"绝不提尺寸"，而示范里写着"正在画 16:9 的…"，
-    模型跟示范走，群里因此出现"来一张横版壁纸"。该规则已被移除，
-    相关断言一并删掉，不留"规则没了、测试还在"的僵尸检查。）
+    2026-10-25 对照实测（deepseek-v4.1-flash）：
+      - 10 句边界用例 × 2 轮：带满 6 条示范判定 100%，一条不留也是 100%；
+      - 6 句 image 用例 × 3 轮：全删后 reply 变长（均值 19.6 → 29.4 字），
+        但判定一次没失手 —— 而"reply 长几句"不值得每次多送 800 token。
+    所以整段移除。若将来换了模型、判定开始掉，先补回示范再说话，
+    同时把 SYSTEM_PROMPT 里对应的规则一起改，别让规则和示范打架。
     """
-    problems: list[tuple[str, str, str]] = []
-    for user_text, payload in router.FEW_SHOT:
-        decision = router.parse_decision(payload)
-        assert decision is not None, f"few-shot 自己都解析不过：{user_text}"
-        if decision.action != "image":
-            continue
-        reply = decision.reply or ""
-        if len(reply) > REPLY_MAX_CHARS:
-            problems.append((user_text, reply, f"超过 {REPLY_MAX_CHARS} 字上限"))
-        if "？" in reply or "?" in reply:
-            problems.append((user_text, reply, "示范写成了反问句（规则 5 明令禁止）"))
-    assert not problems, problems
+    assert router.FEW_SHOT == ()
 
 
-def test_all_few_shot_payloads_are_parseable() -> None:
-    """任一示范解析失败，模型就会学到"可以输出不合规的 JSON"。"""
-    for user_text, payload in router.FEW_SHOT:
-        assert router.parse_decision(payload) is not None, user_text
+def test_build_messages_has_no_few_shot_noise() -> None:
+    """消息体只该是 system + 历史 + 本次提问，不该混进示范对话。"""
+    msgs = router.build_messages("画一只猫")
+    assert msgs[0]["role"] == "system"
+    assert msgs[-1] == {"role": "user", "content": "画一只猫"}
+    assert len(msgs) == 2, msgs
+
+    with_history = router.build_messages(
+        "再说一次", [{"role": "user", "content": "画一只猫"}, {"role": "assistant", "content": "好"}]
+    )
+    assert len(with_history) == 4
 
 
 # --------------------------------------------------------------------------- #
@@ -323,10 +318,10 @@ def test_build_messages_shape() -> None:
     assert msgs[0]["role"] == "system"
     assert "只输出一个 JSON 对象" in msgs[0]["content"]
     assert msgs[-1] == {"role": "user", "content": "画一只猫"}
-    # few-shot 里必须同时有正例和反例，否则模型会倾向于"顺着用户画"
+    # 正例/反例的职责已从 few-shot 移到 SYSTEM_PROMPT 的第 1、2 条（见上面的决策锁）：
+    # 这里只断言"该讲的都在提示词里"，不再假设存在示范对话。
     joined = " ".join(m["content"] for m in msgs)
-    assert "帮我画一张小猫图吧" in joined
-    assert "帮我生成一个 UUID" in joined
-    assert "draw a conclusion" in joined
+    assert "action=image" in joined
+    assert "action=text" in joined
     # 历史要在最后一条 user 之前
     assert {"role": "user", "content": "上一句"} in msgs

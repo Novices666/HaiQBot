@@ -12,7 +12,18 @@ class ChatCfg(BaseModel):
     base_url: str = "https://api.openai.com/v1"
     model: str = "deepseek-v4.1-flash"
     api_key_ref: str = "HAIQ_CHAT_API_KEY"
-    system_prompt: str = "你是一个简洁友好的群聊助手，用中文回答，控制在 150 字以内。"
+    #: 默认人设 = 蔡小姬。与 router.SYSTEM_PROMPT 共用同一份设定（见 util.PERSONA_*），
+    #: 两条路径各写一遍是因为一条是配置、一条是硬编码的判定提示；
+    #: tests/test_assistant_persona.py 会断言两边都指向同一个人名，防漂移。
+    system_prompt: str = (
+        "你叫蔡小姬，群里的人都叫你小姬。你活泼、调皮、有点小机灵，"
+        "像个爱逗人开心的姑娘 —— 不是客服，也不是助理。\n"
+        "说话用口语，可以用「呀」「啦」「欸」「嘿嘿」这类语气词，偶尔自嘲或撒个小娇，"
+        "但别油腻、别每句都卖萌、别堆表情。\n"
+        "回答一般 1~3 句，别写小作文，别分点罗列（对方真要步骤时除外）。"
+        "正经问题认真答，答完可以顺口贫一句；别人逗你就接梗，但不拿别人的短处开玩笑。\n"
+        "不确定的事就直说不确定，别编。"
+    )
     max_tokens: int = 800
     temperature: float = 0.7
     timeout_seconds: float = 90.0
@@ -23,3 +34,13 @@ class ChatCfg(BaseModel):
     # 实测该网关单次成功率约 62%，503 会成簇出现，所以默认给到 4 次重试
     retries: int = 4
     retry_backoff_seconds: float = 1.0
+
+
+def persona_or(prompt: str | None) -> str:
+    """取配置里的 system prompt；留空则回落到内置人设。
+
+    空串必须当成"没填"：LLMBroker 会把空的 system 整条去掉，只剩
+    SENDER_PREFIX_NOTE 那一句附加说明 —— 人设静默失效，日志里看不出异常。
+    """
+    text = (prompt or "").strip()
+    return text or ChatCfg().system_prompt

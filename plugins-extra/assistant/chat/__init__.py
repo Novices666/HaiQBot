@@ -33,7 +33,7 @@ def sub_config(config: Any, prefix: str = PREFIX) -> dict[str, Any]:
 def build_service(pctx: ProviderContext) -> Any:
     """组装对话服务。凭据只通过槽位取，provider 本身不接触密钥文本。"""
     from .broker import LLMBroker
-    from .config import ChatCfg
+    from .config import ChatCfg, persona_or
     from .providers.mock import MockChatProvider
     from .providers.openai_compat import OpenAICompatChatProvider
 
@@ -46,7 +46,7 @@ def build_service(pctx: ProviderContext) -> Any:
     broker = LLMBroker(
         provider,
         model=cfg.model,
-        system_prompt=cfg.system_prompt,
+        system_prompt=persona_or(cfg.system_prompt),
         max_tokens=cfg.max_tokens,
         temperature=cfg.temperature,
     )

@@ -35,7 +35,7 @@ from haiqbot.plugin_api import (
 from . import chat as chat_layer
 from . import image as image_layer
 from . import moderation, router
-from .util import safe_reason
+from .util import safe_detail
 
 DEFAULT_HISTORY_TURNS = 6
 
@@ -412,7 +412,7 @@ class Assistant(Plugin):
         except Exception as exc:  # noqa: BLE001
             ctx.log.exception("assistant_chat_failed", error_type=type(exc).__name__)
             await self._bump(ctx, "ask_fail", actor=self._actor(ctx))
-            await ctx.reply.text(f"❌ 对话失败：{safe_reason(exc)}")
+            await ctx.reply.text(f"欸，我卡住了…（对话失败：{safe_detail(exc)}）")
             return
         if await self._blocked_output(ctx, answer):
             return
@@ -450,7 +450,7 @@ class Assistant(Plugin):
         except Exception as exc:  # noqa: BLE001
             ctx.log.exception("assistant_route_failed", error_type=type(exc).__name__)
             await self._bump(ctx, "ask_fail", actor=self._actor(ctx))
-            await ctx.reply.text(f"❌ 对话失败：{safe_reason(exc)}")
+            await ctx.reply.text(f"欸，我卡住了…（对话失败：{safe_detail(exc)}）")
             return
 
         decision = router.parse_decision(raw)
@@ -560,13 +560,13 @@ class Assistant(Plugin):
         except Exception as exc:  # noqa: BLE001
             ctx.log.exception("assistant_image_failed", error_type=type(exc).__name__)
             await self._bump(ctx, "draw_fail", actor=self._actor(ctx))
-            await ctx.reply.text(f"❌ 生成失败：{safe_reason(exc)}")
+            await ctx.reply.text(f"呜，画不出来…（生成失败：{safe_detail(exc)}）")
             return
 
         if ctx.reply.almost_expired(margin=5.0):
             ctx.log.warning("assistant_window_closed", media_id=ref.media_id)
             await self._bump(ctx, "draw_fail", actor=self._actor(ctx))
-            await ctx.reply.text(f"出图太慢，窗口已关闭（图已存在媒体库，ID={ref.media_id}）")
+            await ctx.reply.text(f"出图太慢啦，消息窗口已经关了…图存下来了（媒体库 ID={ref.media_id}）")
             return
 
         try:
@@ -575,7 +575,7 @@ class Assistant(Plugin):
             ctx.log.exception("assistant_send_failed", error_type=type(exc).__name__, media_id=ref.media_id)
             await self._bump(ctx, "draw_fail", actor=self._actor(ctx))
             await ctx.reply.text(
-                f"❌ 发送失败：图片已生成（媒体库 ID={ref.media_id}），但发到群里失败：{safe_reason(exc)}"
+                f"图画好了，可就是送不出去…\n（发送失败：{safe_detail(exc)}；媒体库 ID={ref.media_id}）"
             )
             return
         if size_note:

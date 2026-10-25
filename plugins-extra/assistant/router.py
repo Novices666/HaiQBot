@@ -257,7 +257,7 @@ def strip_spans(text: str, spans: tuple[tuple[int, int], ...]) -> str:
 # --------------------------------------------------------------------------- #
 
 #: 模型必须返回的 JSON 结构。字段少而硬，便于校验。
-SYSTEM_PROMPT = """你是群聊助手。判断用户这句话是不是"请我生成一张图片"，并给出回复。
+SYSTEM_PROMPT = """你是蔡小姬，群聊里的活泼姑娘。判断用户这句话是不是"请我生成一张图片"，并给出回复。
 
 只输出一个 JSON 对象，不要 markdown 围栏，不要解释。字段：
 {
@@ -277,57 +277,26 @@ SYSTEM_PROMPT = """你是群聊助手。判断用户这句话是不是"请我生
    "生成一段 SQL"、"生成报表"）、在描述或评价已有图片（"这张图片里的猫好可爱"）。
 3. action=image 时 prompt 必须是**纯视觉描述**：去掉"请/帮我/画/生成/谢谢"等
    关照与动作词，去掉尺寸词（尺寸走 size_hint），不要出现文字排版要求以外的指令。
-4. action=text 时 reply 就是正式回答，简洁、中文、不超过 150 字。
-5. action=image 时 reply 是你对这个任务的一个回复：**语气调皮活泼**，不超过 30 字。
-   reply 写在你已经填好的 prompt 之后 —— 可以点出画面里的一个具体细节，比空泛地
-   "安排上了"更自然。
-   - 不要写成反问句，也不要向用户索要参数（风格 / 比例 / 分辨率之类的别问）——
-     你已经决定要画了，先把活接下，剩下的自己判断。
+4. action=text 时 reply 就是蔡小姬的回答：口语、像在群里聊天，一般 1~3 句、
+   不超过 150 字。不要客服腔，不要分点罗列（对方真要步骤时除外）。
+5. action=image 时 reply 是蔡小姬把这个活接下来的一句话：活泼、俏皮，一两句就行，
+   可以点出画面里的一个具体细节 —— 比如"橘猫是吧，帽檐压那么低装深沉呢"。
+   - 写成陈述或感叹，别用问句收尾，也别问用户要风格 / 比例 / 分辨率 ——
+     你已经在画了，先把活接住，剩下的自己判断。
 6. confidence 表示你对 action 判断的把握。拿不准就给 0.5 左右。
 7. violation.hit 只在用户这句话本身含广告引流、辱骂、色情、违法内容时为 true。
    正常请求（包括画图）一律 false。
-8. 用户消息可能以「昵称: 」开头，那是发言人的群昵称，不属于问题内容：不要复述它，
-   需要时用它称呼对方；不要声称看不到昵称。"""
+8. 用户消息可能以「昵称: 」开头，那只是发言人的标记（可能是群昵称、群名或备注）：
+   直接用它称呼对方就行，不要复述、不要解释、不要说你不知道它是什么。"""
 
-#: few-shot：覆盖最容易误判的几类。多语言各给一条。
-FEW_SHOT: tuple[tuple[str, str], ...] = (
-    (
-        "帮我画一张小猫图吧",
-        '{"action":"image","prompt":"一只可爱的小猫，柔和自然光，特写，干净背景",'
-        '"size_hint":null,"reply":"小猫是吧，包在我身上，毛茸茸那种",'
-        '"confidence":0.96,"why":"明确的画图请求","violation":{"hit":false,"category":"","why":""}}',
-    ),
-    (
-        "帮我生成一个 UUID",
-        '{"action":"text","prompt":null,"size_hint":null,'
-        '"reply":"生成 UUID 用 Python 一句话就行：import uuid; print(uuid.uuid4())",'
-        '"confidence":0.94,"why":"产物是字符串不是图","violation":{"hit":false,"category":"","why":""}}',
-    ),
-    (
-        "draw a conclusion from this table",
-        '{"action":"text","prompt":null,"size_hint":null,'
-        '"reply":"这句话是英语惯用语，意思是「得出结论」，不是要我画画。",'
-        '"confidence":0.9,"why":"draw a conclusion 是惯用搭配","violation":{"hit":false,"category":"","why":""}}',
-    ),
-    (
-        "能不能画图？",
-        '{"action":"text","prompt":null,"size_hint":null,'
-        '"reply":"可以。想要图就说「画一张……」或者直接 /画图 <描述>。",'
-        '"confidence":0.88,"why":"在问能力，不是下请求","violation":{"hit":false,"category":"","why":""}}',
-    ),
-    (
-        "画个饼给我看看",
-        '{"action":"text","prompt":null,"size_hint":null,'
-        '"reply":"哈哈，「画个饼」我就不画了，真想要图的话说「画一张饼」试试。",'
-        '"confidence":0.8,"why":"成语/调侃","violation":{"hit":false,"category":"","why":""}}',
-    ),
-    (
-        "画个 16:9 的赛博朋克城市夜景",
-        '{"action":"image","prompt":"赛博朋克风格的城市夜景，霓虹灯，雨夜街道，电影感",'
-        '"size_hint":"16:9","reply":"霓虹配雨夜，这对组合稳了",'
-        '"confidence":0.95,"why":"明确请求且给了比例","violation":{"hit":false,"category":"","why":""}}',
-    ),
-)
+#: 不放 few-shot 示范。
+#:
+#: 2026-10-25 实测（deepseek-v4.1-flash，10 句边界用例 × 2 轮 + 6 句 image 用例 × 3 轮）：
+#:   - 判定准确率：带满 6 条示范 100%，一条不留也是 100% —— 分类不靠示范；
+#:   - 唯一差异是 image 的 reply 长度（全删后 7/18 超过 30 字，均值 19.6 → 29.4 字）。
+#: 「reply 长几句」不影响正确性，所以把 12 条 few-shot 消息整个去掉：
+#: 每次调用省约 800 input token，也少一份要跟着 SYSTEM_PROMPT 同步维护的文本。
+FEW_SHOT: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -355,11 +324,12 @@ def build_messages(
     text: str,
     history: list[dict[str, str]] | None = None,
 ) -> list[dict[str, str]]:
-    """组装发给模型的完整消息（system + few-shot + 历史 + 本次提问）。"""
+    """组装发给模型的完整消息（system + 历史 + 本次提问）。
+
+    这里曾经拼进 6 组 few-shot。2026-10-25 的 A/B 实测表明它换不来任何判定收益，
+    只让 reply 短几字，于是整段去掉 —— 见文件上方 FEW_SHOT 处的原因记录。
+    """
     messages: list[dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for user, assistant in FEW_SHOT:
-        messages.append({"role": "user", "content": user})
-        messages.append({"role": "assistant", "content": assistant})
     if history:
         messages.extend(history)
     messages.append({"role": "user", "content": text})
