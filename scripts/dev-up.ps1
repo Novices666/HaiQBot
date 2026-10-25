@@ -5,8 +5,8 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\dev-up.ps1 -SkipDocker   # 容器已在跑
 #   powershell -ExecutionPolicy Bypass -File scripts\dev-up.ps1 -SkipBot      # 只起容器
 #
-# 口令处理：口令存在 secrets\.vault-pass.dpapi（Windows DPAPI，仅本机本账户可解）。
-# 解密与起进程都由 scripts\run-with-vault.ps1 负责，命令行里只有脚本路径，口令不打印、不落日志。
+# 口令处理：口令只从环境变量 HAIQ_VAULT_PASSPHRASE 来；本机放在项目根 .env 里（不入库）。
+# 起服务由 scripts\run-with-env.ps1 负责（它自己读 .env），命令行里只有脚本路径，口令不打印。
 # 子进程用 WMI Win32_Process 创建，因此关掉当前 PowerShell 窗口不会把它带走。
 
 param(
@@ -20,8 +20,8 @@ $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
 $py = Join-Path $root ".venv\Scripts\python.exe"
-$runner = Join-Path $PSScriptRoot "run-with-vault.ps1"
-. (Join-Path $PSScriptRoot "vaultpass.ps1")
+$runner = Join-Path $PSScriptRoot "run-with-env.ps1"
+. (Join-Path $PSScriptRoot "envpass.ps1")
 $logFile = Join-Path $root "logs\haiq.out"
 $cfg = Join-Path $root "haiq.toml"
 
@@ -196,12 +196,13 @@ if (-not $SkipBot) {
         Ok "已经在跑（WebUI $webuiPort 有响应），跳过启动"
     }
     else {
-        if (-not (Read-VaultPass -Root $root)) {
-            Die "找不到口令：secrets\.vault-pass.dpapi —— 先生成：powershell -ExecutionPolicy Bypass -File scripts\rotate-vault-pass.ps1"
+        if (-not (Get-VaultPass -Root $root)) {
+            Write-VaultPassHint
+            exit 1
         }
         if (-not (Test-Path (Split-Path -Parent $logFile))) { New-Item -ItemType Directory -Path (Split-Path -Parent $logFile) | Out-Null }
 
-        # 口令不进命令行：run-with-vault.ps1 自己从 DPAPI 文件解密、设进环境，再起 python
+        # 口令不进命令行：run-with-env.ps1 自己从环境变量 / .env 读，设进自己的进程环境，再起 python
         $cmd = "cmd.exe /c powershell -NoProfile -ExecutionPolicy Bypass -File `"$runner`""
         $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd }
         if ($r.ReturnValue -ne 0) { Die "进程创建失败（ReturnValue=$($r.ReturnValue)）" }

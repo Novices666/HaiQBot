@@ -1,15 +1,18 @@
 """凭据库（vault）。
 
-
-
 设计约束：
 
 - 配置文件里只有键名（`*_ref`），真值全在这里；
-
 - `get()` 是唯一出口，取出时自动登记到日志脱敏名单；
+- 装配链只有两段，**没有任何平台分支**：
+  `EnvBackend`（环境变量）→ `FileBackend`（`secrets/vault.json`，scrypt + AES-256-GCM）。
+  主口令只从 `[vault] passphrase_ref` 指定的环境变量读（默认 `HAIQ_VAULT_PASSPHRASE`）；
+  口令怎么落地（本机 `.env` / 服务环境变量 / Docker env_file）由部署方式决定，内核不管。
 
-- 后端优先级：环境变量 → DPAPI 加密文件 → keyring → 明文文件（仅最后手段，会大声告警）。
+⚠️ 本文件里另外两个后端**不在运行链上**，别误以为"还有别的后端可选"：
 
+- `DpapiFileBackend`：只给 `haiq secrets reencrypt` 迁移旧格式 `secrets/vault.bin` 用；
+- `PlainFileBackend`：明文 JSON，只作测试 fixture，生产从不装配。
 """
 
 from __future__ import annotations
@@ -18,7 +21,6 @@ import base64
 import hashlib
 import json
 import os
-import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -194,7 +196,10 @@ else:  # pragma: no cover - 平台分支
 
 
 class DpapiFileBackend:
-    """`secrets/vault.bin`：DPAPI 加密的 JSON 字典。"""
+    """`secrets/vault.bin`：旧格式（DPAPI 加密的 JSON）。**仅 `haiq secrets reencrypt` 迁移用**。
+
+    新装的机器不会产生这个文件；运行链上也没有它（见模块 docstring）。
+    """
 
     name = "dpapi"
 
@@ -310,7 +315,11 @@ class DpapiFileBackend:
 
 
 class PlainFileBackend:
-    """非 Windows 的退路：明文 JSON + 0600，启动时大声告警。"""
+    """明文 JSON 后端：**只给测试当 fixture**，生产装配链里没有它。
+
+    留着是因为一批单测要有「不绑平台、不绑用户」的凭据存储；
+    真跑起来明文存密钥等于把 vault 变成摆设，所以别在 `Vault.from_config` 里接它。
+    """
 
     name = "file"
 
@@ -602,106 +611,6 @@ class FileBackend:
     def keys(self) -> list[str]:
 
         return sorted(self._load().keys())
-
-
-class KeyringBackend:
-    """系统钥匙串（可选依赖）。"""
-
-    name = "keyring"
-
-    writable = True
-
-    def __init__(self, service: str = "haiqbot") -> None:
-
-        self.service = service
-
-        try:
-            import keyring  # noqa: F401
-
-            self._kr = keyring
-
-            self.available = True
-
-        except Exception:  # noqa: BLE001
-            self._kr = None
-
-            self.available = False
-
-    def get(self, key: str) -> str | None:
-
-        if not self.available:
-            return None
-
-        try:
-            return self._kr.get_password(self.service, key)
-
-        except Exception:  # noqa: BLE001
-            return None
-
-    def set(self, key: str, value: str) -> None:
-
-        if not self.available:
-            raise VaultError("keyring 未安装")
-
-        self._kr.set_password(self.service, key, value)
-
-    def delete(self, key: str) -> bool:
-
-        if not self.available:
-            return False
-
-        try:
-            self._kr.delete_password(self.service, key)
-
-            return True
-
-        except Exception:  # noqa: BLE001
-            return False
-
-    def keys(self) -> list[str]:
-
-        return []
-
-
-class CmdBackend:
-    """外部命令后端：`cmd <key>` 输出到 stdout 即凭据值。"""
-
-    name = "cmd"
-
-    writable = False
-
-    def __init__(self, command: list[str] | None = None) -> None:
-
-        self.command = command or []
-
-    def get(self, key: str) -> str | None:
-
-        if not self.command:
-            return None
-
-        try:
-            out = subprocess.run(  # noqa: S603
-                [*self.command, key], capture_output=True, text=True, timeout=10, check=False
-            )
-
-        except Exception:  # noqa: BLE001
-            return None
-
-        value = out.stdout.strip()
-
-        return value or None
-
-    def set(self, key: str, value: str) -> None:
-
-        raise VaultError("cmd 后端只读")
-
-    def delete(self, key: str) -> bool:
-
-        raise VaultError("cmd 后端只读")
-
-    def keys(self) -> list[str]:
-
-        return []
 
 
 class Vault:

@@ -52,6 +52,20 @@ Write-Host "注册服务 $ServiceName -> $venvPython"
 & $nssm set $ServiceName Start SERVICE_AUTO_START
 & $nssm set $ServiceName Description "haiqbot —— 协议无关的 QQ Bot 框架"
 
+# 服务读不到 .env：vault 主口令必须落进服务自己的环境变量，否则服务一启动就说「凭据库打不开」。
+# 口令从当前环境变量 / 仓库根 .env 取（scripts\envpass.ps1）；找不到就提醒，不硬闯。
+. (Join-Path $RepoRoot "scripts\envpass.ps1")
+$vaultPass = Get-VaultPass -Root $RepoRoot
+if ($vaultPass) {
+    & $nssm set $ServiceName AppEnvironmentExtra "HAIQ_VAULT_PASSPHRASE=$vaultPass" | Out-Null
+    $vaultPass = $null
+    Write-Host "ok 已把 HAIQ_VAULT_PASSPHRASE 写进服务环境变量（存在注册表里，别在共用机器上这么干）" -ForegroundColor Green
+}
+else {
+    Write-Host "! 没拿到 vault 主口令，服务启动后会打不开凭据库" -ForegroundColor Yellow
+    Write-Host "  补上：nssm set $ServiceName AppEnvironmentExtra HAIQ_VAULT_PASSPHRASE=<口令>" -ForegroundColor Yellow
+}
+
 Write-Host "启动服务…"
 & $nssm start $ServiceName
 Start-Sleep -Seconds 2

@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import getpass
 import json
+import os
 import sys
 from functools import lru_cache
 from pathlib import Path
@@ -22,6 +23,7 @@ from typing import Any
 from haiqbot.config import DEFAULT_CONFIG_FILE, dump_default_config, load_config
 from haiqbot.core.errors import ConfigError
 from haiqbot.kernel.log import configure_logging, get_logger
+from haiqbot.kernel.vault import VaultError
 
 log = get_logger(__name__)
 
@@ -39,11 +41,14 @@ def _cmd_init(args: argparse.Namespace) -> int:
     print(f"✅ 已生成 {target}")
     print(f"✅ 已创建 {secrets_dir}/（已加入 .gitignore）")
     print("\n下一步：")
-    print("  haiq vault set HAIQ_IMAGE_API_KEY   # 生图密钥（交互式输入，不回显）")
     print(
-        "  haiq doctor                          # 自检\n  haiq channels list                   # 频道开关（应急入口）"
+        '  $env:HAIQ_VAULT_PASSPHRASE = "<自定口令>"   # vault 是 aead 时必需（Windows PowerShell）\n'
+        "  haiq secrets set HAIQ_IMAGE_API_KEY        # 密钥：交互输入、不回显\n"
+        "  haiq webui token --generate                # 生成面板令牌（只打印一次）\n"
+        "  haiq doctor                                # 自检\n"
+        "  haiq run                                   # 起服务（面板 http://127.0.0.1:8080）\n"
+        "  haiq run --demo                            # 不连 QQ 的演示，跑完即退"
     )
-    print("  haiq run --demo                      # 不连 QQ 的本地演示")
     return 0
 
 
@@ -132,15 +137,22 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print("      请执行：haiq secrets reencrypt")
         errors += 1
 
-    if (vdir / ".vault-pass.dpapi").is_file():
-        print("口令文件：.vault-pass.dpapi（Windows DPAPI，仅本机本账户可解）")
-        print("      换机器 / 换账户启动要重跑 scripts\\rotate-vault-pass.ps1 重建")
-    # 明文密码文件 = 加密白做：能读到 vault.json 的人也能读到钥匙
-    for name in (".vault-pass.txt", "vault-pass.txt", ".passphrase"):
+    # 主口令只从环境变量来（键名见 [vault] passphrase_ref）。.env 只是本机放它的地方，
+    # 内核不读 .env —— 读 .env 的是 scripts/haiq.ps1 这类启动器。
+    if vault.enc_kind == "aead":
+        if os.environ.get(cfg.vault.passphrase_ref):
+            print(f"口令来源：环境变量 {cfg.vault.passphrase_ref} OK")
+        else:
+            print(f"警告：没拿到 vault 主口令（{cfg.vault.passphrase_ref} 未设置）")
+            print("      本机：在 .env 里写 HAIQ_VAULT_PASSPHRASE=<口令>，用 scripts\\haiq.ps1 执行命令")
+            print("      服务：把它放进服务环境变量（NSSM: AppEnvironmentExtra；Docker: env_file）")
+            warnings += 1
+
+    # 旧版本用文件存口令；现在一律走环境变量，留着这些文件只会让人以为还有别的机制
+    for name in (".vault-pass.dpapi", ".vault-pass.txt", "vault-pass.txt", ".passphrase"):
         if (vdir / name).is_file():
-            print(f"警告：明文密码文件还在：{vdir / name}")
-            print("      它让 vault 加密形同虚设；换密码后立刻删掉")
-            print("      轮换：powershell -ExecutionPolicy Bypass -File scripts\\rotate-vault-pass.ps1")
+            print(f"警告：遗留的口令文件：{vdir / name}")
+            print("      新版本不读它；确认 .env 或服务环境变量里有口令后，删掉这个文件")
             warnings += 1
             break
 
@@ -588,7 +600,7 @@ def _cmd_channels(args: argparse.Namespace) -> int:
                 rows = await store.channel_all()
                 if not rows:
                     print("（没有任何频道配置 —— 按默认全关，所有群都不会响应）")
-                    print("  开启示例：haiq channels enable onebot:group:674425800 --plugins echo,help")
+                    print("  开启示例：haiq channels enable onebot:group:200000001 --plugins echo,help")
                     return 0
                 print(f"{'频道':<34}{'状态':<6}已开启")
                 for row in rows:
@@ -599,7 +611,7 @@ def _cmd_channels(args: argparse.Namespace) -> int:
 
             targets = [t for t in (args.targets or []) if t]
             if not targets:
-                print("x 需要指定频道，例如：haiq channels enable onebot:group:674425800 --plugins echo")
+                print("x 需要指定频道，例如：haiq channels enable onebot:group:200000001 --plugins echo")
                 return 1
 
             picked = [x.strip() for x in (args.plugins or "").split(",") if x.strip()]
@@ -785,8 +797,8 @@ def _cmd_vault(args: argparse.Namespace) -> int:
 def _secrets_passwd(cfg, vdir: Path) -> int:
     """轮换 vault 口令：旧口令解开 → 新口令重写。
 
-    存在的理由：`reencrypt` 只能从 DPAPI 遗留文件迁移，一旦那份 `.bak` 没了，
-    口令就永远改不了。这里不依赖任何遗留文件 —— 走的是「解密-再加密」。
+    存在的理由：`reencrypt` 只做旧格式 `vault.bin` 的一次性迁移，迁移完就没有"改口令"
+    这条路了。这里不依赖任何遗留文件 —— 走的是「解密-再加密」。
 
     真值只在本进程内存里过一遍，不打印、不落盘。
     """
@@ -1122,7 +1134,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_channels = sub.add_parser("channels", help="频道开关（应急入口）")
     p_channels.add_argument("action", choices=["list", "verify", "enable", "disable"])
-    p_channels.add_argument("targets", nargs="*", help="频道标识，如 onebot:group:674425800")
+    p_channels.add_argument("targets", nargs="*", help="频道标识，如 onebot:group:200000001")
     p_channels.add_argument("--plugins", help="逗号分隔：painter,chat:ask（留空 = 全部已装插件）")
     p_channels.set_defaults(func=_cmd_channels)
 
@@ -1134,7 +1146,7 @@ def build_parser() -> argparse.ArgumentParser:
     jobs_add.add_argument("--id", help="自定义 id（默认自动生成）")
     jobs_add.add_argument("--at", help="每天几点执行，如 09:30")
     jobs_add.add_argument("--seconds", type=float, default=3600.0, help="间隔秒数（不写 --at 时生效）")
-    jobs_add.add_argument("--channel", required=True, help="目标频道，如 onebot:group:674425800")
+    jobs_add.add_argument("--channel", required=True, help="目标频道，如 onebot:group:200000001")
     jobs_add.add_argument("--text", required=True, help="要发的内容")
     jobs_add.add_argument("--disabled", action="store_true", help="建好先不启用")
     for _action in ("enable", "disable", "rm"):
@@ -1179,10 +1191,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    # Windows 控制台默认 GBK，遇到 emoji 会直接崩；统一用 UTF-8 兜底
+    # Windows 控制台默认 GBK：这里只放宽错误处理，不改编码。
+    # 千万别 reconfigure(encoding="utf-8") —— 控制台仍按 936 解码那些字节，
+    # 结果就是中文全变乱码（新人看到的第一屏）。Python 对真实控制台本来就
+    # 走 UTF-16 写入通道，emoji 不会崩；只有重定向到文件/管道时才需要
+    # errors="replace" 兜底。
     for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+            stream.reconfigure(errors="replace")  # type: ignore[union-attr]
         except (AttributeError, ValueError):
             pass
 
@@ -1198,6 +1214,10 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         return int(args.func(args) or 0)
+    except VaultError as exc:
+        # 口令没给 / 给错——同样只该看到一句人话（新人第一次跑 token --generate 就会撞上）
+        print(f"× 凭据库打不开：{exc}")
+        return 2
     except ConfigError as exc:
         # 配置坏了只该看到一句人话，不该是 traceback
         print(f"× 配置有问题：{exc}")
@@ -1205,4 +1225,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())
     raise SystemExit(main())

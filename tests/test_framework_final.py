@@ -99,8 +99,8 @@ def test_demo_segment_rendering_is_readable() -> None:
     assert App._describe_segments([]) == ""
 
 
-def test_doctor_warns_on_plaintext_passphrase_file(tmp_path: Path, monkeypatch, capsys) -> None:
-    """vault 旁边躺着明文密码文件 = 加密白做，doctor 必须喊出来。"""
+def test_doctor_warns_on_legacy_passphrase_file(tmp_path: Path, monkeypatch, capsys) -> None:
+    """文件存口令这套已经下线：看到遗留文件就该喊「删掉」，而不是教用户继续用。"""
     cfg_path = tmp_path / "haiq.toml"
     cfg_path.write_text("", encoding="utf-8")
     secrets = tmp_path / "secrets"
@@ -120,13 +120,14 @@ def test_doctor_warns_on_plaintext_passphrase_file(tmp_path: Path, monkeypatch, 
     monkeypatch.setattr("haiqbot.cli.load_config", lambda _p: cfg)
     code = _doctor(str(cfg_path))
     out = capsys.readouterr().out
-    assert "明文密码文件还在" in out
-    assert "rotate-vault-pass.ps1" in out
+    assert "遗留的口令文件" in out
+    assert ".vault-pass.txt" in out
+    assert "rotate-vault-pass.ps1" not in out
     assert code >= 1
 
 
-def test_doctor_recognises_dpapi_passphrase_file(tmp_path: Path, monkeypatch, capsys) -> None:
-    """口令存进 .vault-pass.dpapi 就不该再报「明文密码文件还在」。"""
+def test_doctor_warns_on_legacy_dpapi_file(tmp_path: Path, monkeypatch, capsys) -> None:
+    """DPAPI 口令文件也不再被读：同样只提醒删掉。"""
     cfg_path = tmp_path / "haiq.toml"
     cfg_path.write_text("", encoding="utf-8")
     secrets = tmp_path / "secrets"
@@ -141,13 +142,39 @@ def test_doctor_recognises_dpapi_passphrase_file(tmp_path: Path, monkeypatch, ca
     vault = Vault.from_config(cfg)
     for ref in ("HAIQ_IMAGE_API_KEY", "HAIQ_CHAT_API_KEY", "HAIQ_ONEBOT_ACCESS_TOKEN"):
         vault.set(ref, "v")
-    # 内容不重要：doctor 只看文件在不在，不负责解 DPAPI
     (secrets / ".vault-pass.dpapi").write_text("QUJD", encoding="utf-8")
 
     monkeypatch.setattr("haiqbot.cli.load_config", lambda _p: cfg)
     code = _doctor(str(cfg_path))
     out = capsys.readouterr().out
     assert ".vault-pass.dpapi" in out
-    assert "明文密码文件还在" not in out
+    assert "遗留的口令文件" in out
     # 退出码受环境影响（宿主机开着代理就会多一条警告），只能松着断言
     assert code in (0, 1)
+
+
+def test_doctor_reports_passphrase_source(tmp_path: Path, monkeypatch, capsys) -> None:
+    """aead 时 doctor 要说清口令从哪来 —— 环境变量在就有，不在就警告。"""
+    cfg_path = tmp_path / "haiq.toml"
+    cfg_path.write_text("", encoding="utf-8")
+    secrets = tmp_path / "secrets"
+    secrets.mkdir()
+    cfg = HaiqConfig(
+        data_dir=tmp_path / "data",
+        db_path=tmp_path / "data" / "haiq.db",
+        secrets_dir=secrets,
+        vault=VaultCfg(enc="aead"),
+        webui=WebuiCfg(enabled=False, write_enabled=False),
+    )
+    monkeypatch.setattr("haiqbot.cli.load_config", lambda _p: cfg)
+
+    monkeypatch.setenv("HAIQ_VAULT_PASSPHRASE", "a-passphrase")
+    _doctor(str(cfg_path))
+    out = capsys.readouterr().out
+    assert "口令来源：环境变量 HAIQ_VAULT_PASSPHRASE OK" in out
+
+    monkeypatch.delenv("HAIQ_VAULT_PASSPHRASE", raising=False)
+    _doctor(str(cfg_path))
+    out = capsys.readouterr().out
+    assert "没拿到 vault 主口令" in out
+    assert ".env" in out

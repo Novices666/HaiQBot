@@ -32,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows 必须测：DPAPI 凭据后端、服务安装脚本只有在这条链路上才真跑
+        # Windows 必须测：旧 vault.bin(DPAPI) 迁移路径、PowerShell 脚本的 BOM/编码只有在这条链路上才真跑
         os: [ubuntu-latest, windows-latest]
         python: ["3.11", "3.12"]
     steps:

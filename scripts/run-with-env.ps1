@@ -1,35 +1,33 @@
-﻿# run-with-vault.ps1 —— 用 DPAPI 文件里的口令起 haiqbot（给 dev-up.ps1 调用，也可单独跑）
+﻿# run-with-env.ps1 —— 用环境变量 / .env 里的口令起 haiqbot（给 dev-up.ps1 调用，也可单独跑）
 #
-# 为什么单独一个脚本：
-#   WMI Win32_Process 创建的进程不继承调用者的环境变量，所以不能在 dev-up.ps1
-#   里把口令塞进环境再 Create。改由本脚本自己解口令 -> 设进自己的环境 -> 起 python，
-#   命令行上只出现路径，不出现口令。
+# 为什么不直接把口令塞进命令行：
+#   WMI Win32_Process 创建的进程不继承调用者的环境变量，只能靠「命令行」或「脚本自己读」。
+#   让脚本自己读 .env，命令行上就只剩路径，口令不会出现在进程列表 / 日志 / 历史记录里。
 #
 # 用法：
-#   powershell -ExecutionPolicy Bypass -File scripts\run-with-vault.ps1
-#   ... -Config haiq.toml -Log logs\haiq.out      # 可覆盖
+#   powershell -ExecutionPolicy Bypass -File scripts\run-with-env.ps1
+#   ... -Config haiq.toml -Log logs\haiq.out        # 可覆盖
+#   ... -Foreground                                 # 日志直接打屏（调试用）
 
 param(
     [string]$Config = "haiq.toml",
     [string]$Log = "logs\haiq.out",
-    # 前台跑（调试用）：日志直接打屏，不写文件
     [switch]$Foreground
 )
 
 $root = Split-Path -Parent $PSScriptRoot
-. (Join-Path $PSScriptRoot "vaultpass.ps1")
+. (Join-Path $PSScriptRoot "envpass.ps1")
 
 $py = Join-Path $root ".venv\Scripts\python.exe"
 
 if (-not (Test-Path $py)) {
-    Write-Host "x 找不到 $py —— 先跑一次 uv sync" -ForegroundColor Red
+    Write-Host "x 找不到 $py —— 先跑一次 uv sync --extra dev" -ForegroundColor Red
     exit 1
 }
 
-$pass = Read-VaultPass -Root $root
+$pass = Get-VaultPass -Root $root
 if (-not $pass) {
-    Write-Host "x 找不到口令：secrets\.vault-pass.dpapi（或旧的 .vault-pass.txt）" -ForegroundColor Red
-    Write-Host "  生成：powershell -ExecutionPolicy Bypass -File scripts\rotate-vault-pass.ps1" -ForegroundColor Yellow
+    Write-VaultPassHint
     exit 1
 }
 
