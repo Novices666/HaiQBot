@@ -172,7 +172,7 @@ Windows「Internet 选项 → 局域网设置」里的代理会被 `httpx`（`tr
 | `haiqbot/kernel/request_context.py` | 用 contextvar 把「当前事件」带给能力句柄 |
 | `haiqbot/kernel/config_schema.py` | 配置字段的唯一定义（面板与校验共用） |
 | `haiqbot/kernel/control.py` | 面板写操作：令牌认证 / 字段白名单 / 热更 / 审计 |
-| `haiqbot/kernel/vault.py` | env / DPAPI / keyring / cmd 四后端 |
+| `haiqbot/kernel/vault.py` | 装配链只有 `env → secrets/vault.json`(aead)；旧 `vault.bin` 迁移与测试 fixture 各留一个后端 |
 | `haiqbot/kernel/jobs.py` | 持久化定时任务（interval / daily，动作白名单） |
 | `haiqbot/kernel/secret_index.py` | 凭据槽位索引（CLI 与面板共用） |
 | `haiqbot/kernel/channel_control.py` | 频道开关读写与体检（识别 5 类静默失效） |

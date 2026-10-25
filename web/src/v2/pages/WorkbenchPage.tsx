@@ -59,7 +59,7 @@ export default function WorkbenchPage() {
             text: "",
             platform: "onebot",
             channel_kind: "group",
-            channel_id: "674425800",
+            channel_id: "200000001",
             role: 1,
             at_bot: true,
           }}

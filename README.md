@@ -3,7 +3,9 @@
 **QQ Bot 框架：OneBot v11 + 官方 OpenAPI 双通道，插件与内核彻底分离。**
 
 [![CI](https://github.com/Novices666/HaiQBot/actions/workflows/ci.yml/badge.svg)](https://github.com/Novices666/HaiQBot/actions/workflows/ci.yml)
+
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776ab)
+
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 > 插件永远拿不到密钥，也永远不需要知道自己跑在哪个平台。
@@ -41,30 +43,41 @@
 
 ```bash
 git clone https://github.com/Novices666/HaiQBot && cd HaiQBot
-uv sync --extra dev          # 也可以用 pip install -e ".[dev]"
-uv run haiq init             # 生成 haiq.toml + secrets/
-uv run haiq doctor           # 自检：依赖 / 凭据 / 频道 / 插件来源
-uv run haiq run --demo       # 不连 QQ、不烧额度的本地演示
+uv sync --extra dev                       # 冷缓存约 5~6 分钟；也可 pip install -e ".[dev]"
+
+# 全新机器：把 vault 主口令写进 .env（不入库）。内核只从环境变量读它，
+# 读 .env 的是启动器 —— Windows 用 scripts\haiq.ps1。
+echo HAIQ_VAULT_PASSPHRASE=<自定口令> >> .env      # PowerShell: Add-Content .env "HAIQ_VAULT_PASSPHRASE=<自定口令>"
+
+powershell -ExecutionPolicy Bypass -File scripts\haiq.ps1 doctor                 # 自检
+powershell -ExecutionPolicy Bypass -File scripts\haiq.ps1 webui token --generate # 面板令牌（只打印一次）
+powershell -ExecutionPolicy Bypass -File scripts\haiq.ps1 run                    # 起服务：127.0.0.1:8080
+
+uv run haiq run --demo                     # 零成本演示（Mock，跑完即退，不需要口令）
 ```
+
+> **其它平台**：没有 `haiq.ps1` 这层包装 —— 先 `export HAIQ_VAULT_PASSPHRASE=...`
+> （或把它放进服务环境变量 / Docker `env_file`），再照常用 `uv run haiq <子命令>`。
+
+> **仓库自带 `haiq.toml`**，不需要 `haiq init`（它只给空环境用，且拒绝覆盖已有文件）。
+> 新装 `haiq doctor` 会报 4 个「凭据缺失」错误、退出码 2 —— 那是还没录凭据，不是装坏了。
+> 文字命令面板免认证；**启停插件、改配置要粘上面板令牌**。
 
 > **WebUI 已随包分发**（`src/haiqbot/webui/dist/` 是构建产物），跑起来不需要 Node.js。
 > 想改前端才需要 `cd web && npm ci && npm run dev`。
 
-跑起来后打开 <http://127.0.0.1:8080>，令牌在 vault 里：
-
-```bash
-uv run haiq webui token --generate   # 生成并写入 vault
-```
-
 > **没有发布到 PyPI。** `pip install haiqbot` 现在装不到东西，请用上面的源码方式。
 
-接真 QQ（OneBot v11）三步：
+接真 QQ（OneBot v11）三步 —— **核心不认识具体协议端**，NapCat / Lagrange / LLOneBot 都一样：
 
-1. 装协议端（推荐 [NapCat](https://github.com/NapNeko/NapCatQQ)），扫码登录
-2. `haiq.toml` 里填 `[onebot] url` 与 `access_token_ref`，然后 `haiq secrets set HAIQ_ONEBOT_ACCESS_TOKEN`
-3. `haiq run` → 去面板「白名单与风控」把群加进来
+1. 按它自己的文档装一个 OneBot v11 协议端并登录，在它那边打开**正向 WebSocket**（或 HTTP/SSE），
+   记下地址和 access_token
+2. `uv run haiq run` → 面板「凭据管理」写入 `HAIQ_ONEBOT_ACCESS_TOKEN` → 「配置中心 → 接入」填连接参数
+   填连接角色 / 地址 / 键名 / 机器人 QQ 号，保存后**就地重连**，不用重启进程
+3. 面板「白名单与风控」把群加进来（默认全关，不开频道什么都不做）
 
-完整流程见 **[docs/QUICKSTART.md](docs/QUICKSTART.md)**，含 NapCat 容器、扫码、排障。
+完整流程见 **[docs/QUICKSTART.md](docs/QUICKSTART.md)**（§0–§4 已在干净克隆上逐条验证）。
+协议端侧的具体操作（NapCat 的容器与扫码）在 [docs/DEPLOY.md](docs/DEPLOY.md) 的 C.2。
 
 ## 插件放哪
 
@@ -202,7 +215,7 @@ haiq webui token [--generate]                           # 面板令牌
 | 官方 OpenAPI 通道 | ⚠️ 代码层面已适配（失败语义 / 健康度 / actions 声明都有单测），**从未真机验证**（缺 AppID/AppSecret） |
 | 随仓库插件 | ✅ 框架最小集 echo / help；自有 assistant / guard / admin |
 | 控制台 8 页 + 插件页 | ✅ 真实 Chromium 点过一遍，console 零错误 |
-| 测试 | 700 passed；`ruff check` / `format` 全绿 |
+| 测试 | 708 passed；`ruff check` / `format` 全绿 |
 | 图片发送 | ⚠️ 偶发 `rich media transfer failed`；宿主机开着系统代理时必失败 |
 | 面板内重启/停机 | ❌ 未做（需要进程守护，否则退出后没人拉起） |
 | 子进程隔离 | ❌ 未做（插件一律 inline 加载，`isolation` 目前只是声明） |
@@ -211,7 +224,7 @@ haiq webui token [--generate]                           # 面板令牌
 
 ```bash
 uv sync --extra dev
-uv run pytest -q                 # 700 passed
+uv run pytest -q                 # 708 passed
 uv run ruff check . && uv run ruff format --check .
 uv run haiq run --demo           # 不连 QQ 的本地演示
 ```

@@ -412,9 +412,8 @@ haiq secrets set --missing        # 只提示缺失项
 haiq secrets passwd               # 轮换口令：旧口令解开 -> 新口令重写
 ```
 
-口令轮换不依赖任何遗留文件；Windows 上可以直接跑 `scripts\rotate-vault-pass.ps1`：
-轮换完它会让你把新口令再输一次，写进 `secrets\.vault-pass.dpapi`（DPAPI，仅本机本账户可解），
-回读校验通过后才问你要不要删旧明文文件。
+口令轮换不依赖任何遗留文件：跑 `haiq secrets passwd` 即可（旧口令解开 → 新口令重写）。
+轮换完记得把 `.env` / 服务环境变量里的口令同步改掉，否则下次启动打不开 vault。
 
 ## 平台查询（`ctx.platform`）
 

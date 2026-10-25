@@ -228,7 +228,7 @@ export default function ChannelsPage() {
             rules={[{ required: true, message: "填群号或 QQ 号" }]}
             style={{ width: 220 }}
           >
-            <Input placeholder="674425800" />
+            <Input placeholder="200000001" />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit">

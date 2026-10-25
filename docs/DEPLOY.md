@@ -16,31 +16,49 @@
 ## 0. 部署前必做
 
 ```bash
-uv sync --extra dev --extra official   # 官方平台需要 official extra
-uv run haiqbot init                       # 生成 haiq.toml + secrets/
-uv run haiq secrets set assistant.image_api_key  # 生图密钥（交互式，不回显）
-uv run haiq doctor                     # 自检
+uv sync --extra dev --extra official        # 官方平台才需要 official extra
+uv run haiq doctor                          # 自检：依赖 / 凭据 / 频道 / 插件来源
+uv run haiq secrets set assistant.image_api_key   # 生图密钥（交互式，不回显）
 ```
 
-`haiq doctor` 必须看到 `凭据加密：aead（file）`；启动前一定先设好 `HAIQ_VAULT_PASSPHRASE`。
+> **仓库自带 `haiq.toml`**，不需要 `haiq init`（它只在空环境里用，且拒绝覆盖已有文件）。
+
+`haiq doctor` 必须看到 `凭据加密：aead（file）`。**启动前必须能拿到 vault 主口令**，
+来源只有一个：环境变量 `HAIQ_VAULT_PASSPHRASE`（键名见 `[vault] passphrase_ref`）。
+
+| 场景 | 口令放哪儿 |
+|---|---|
+| Windows 本机自跑 / `scripts\dev-up.ps1` | 项目根 `.env` 里一行 `HAIQ_VAULT_PASSPHRASE=...`（`scripts\haiq.ps1`、`run-with-env.ps1` 会读进环境变量） |
+| Windows 服务（NSSM） | `nssm set <服务名> AppEnvironmentExtra HAIQ_VAULT_PASSPHRASE=<口令>` —— 服务没有 `.env` 概念 |
+| Docker | `env_file: .env` 或 `-e HAIQ_VAULT_PASSPHRASE=...`（见 compose.yaml） |
+| Linux / systemd | `Environment=` / `EnvironmentFile=` |
+
+**永远不要**写进 `haiq.toml`、不要放进命令行参数。口令丢了 = 现有凭据解不开，只能重新录入；
+改口令用 `haiq secrets passwd`，然后同步改上面那处。
 
 ---
 
 ## A. 本机直跑
 
 ```bash
-uv run haiq run --demo     # 先跑零成本演示，确认插件链路
-uv run haiq run            # 正式启动
+uv run haiq run            # 正式启动（面板 http://127.0.0.1:8080）
+uv run haiq run --demo     # 零成本演示：Mock 适配器，跑完即退，不起服务
 ```
 
-WebUI 在 `http://127.0.0.1:8080`，左侧栏四个页面：
+WebUI 在 `http://127.0.0.1:8080`，左侧栏 8 个页面：
 
 | 页面 | 内容 |
 | :--- | :--- |
-| 概览 | 连接健康度（在线/掉线、连接时长、重连次数、最后事件、最近错误）、运行时长与事件计数、凭据状态 |
-| 插件 | 每个插件一张卡：状态、命令、启用/停用/重载，以及该插件自己的参数表单 |
-| 配置 | 系统字段（生图/对话/配额/策略/媒体），有候选项的下拉可选可手填 |
-| 审计 | 最近 200 条，可按关键字过滤，默认只看控制台操作 |
+| 总览 | 连接健康度（在线/掉线、连接时长、重连次数、最后事件、最近错误）、运行时长与事件计数、凭据状态 |
+| 插件与能力 | 每个插件一张卡：状态、命令、启用/停用/重载，以及该插件自己的参数表单 |
+| 命令工作台 | 手工构造一条消息走完整个管线，看它被判给了谁、为什么 |
+| 配置中心 | 系统字段（生图/对话/配额/策略/媒体），有候选项的下拉可选可手填 |
+| 日志 · 审计 · 媒体 | 结构化日志（SSE 实时）、审计流水、媒体库 |
+| 白名单与风控 | 频道开关（**默认全关**）+ 体检横幅 + 配额/限流 |
+| 凭据管理 | 槽位列表（不返回值本体）、单条查看（写 `secret.reveal` 审计）、口令轮换 |
+| 定时任务 | 持久化任务列表，`interval` / `daily`，可停用/删除 |
+
+插件还能自注册页面（声明式 schema，不注入 JS），出现在「插件页面」分组里。
 
 右上角可切换日间/夜间主题（记在浏览器里）。看板免认证；**启停插件、重载插件、改配置、
 改插件参数**要先拿写操作令牌：
@@ -84,7 +102,11 @@ docker-compose up -d haiqbot
 docker-compose logs -f haiqbot
 ```
 
-### C.2 haiqbot + NapCat（OneBot 路线）
+### C.2 haiqbot + 协议端（下面用 NapCat 容器举例）
+
+> 内核只认 **OneBot v11 协议**，不认具体实现。用 Lagrange / LLOneBot / 别的协议端时，
+> **跳过本章**，按 [QUICKSTART.md](QUICKSTART.md) 的 §5–§6 在面板里填连接即可；
+> 本章只解决「协议端自己怎么跑起来」。
 
 **第一步：初始化 NapCat 配置（带 token，不要用空 token）**
 

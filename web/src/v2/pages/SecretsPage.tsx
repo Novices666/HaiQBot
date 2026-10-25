@@ -391,7 +391,7 @@ export default function SecretsPage() {
             onChange={(event) => setAgainPass(event.target.value)}
           />
           <Input
-            placeholder="可选：自定义键名（如 NAPCAT_WEBUI_TOKEN）"
+            placeholder="可选：自定义键名（如 HAIQ_IMAGE_API_KEY）"
             value={suggest}
             onChange={(event) => setSuggest(event.target.value)}
           />
