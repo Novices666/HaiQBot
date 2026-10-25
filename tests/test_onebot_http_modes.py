@@ -23,8 +23,8 @@ from haiqbot.core.errors import AdapterError
 GROUP_PAYLOAD = {
     "post_type": "message",
     "message_type": "group",
-    "group_id": 674425800,
-    "user_id": 1291944421,
+    "group_id": 200000001,
+    "user_id": 100000001,
     "message_id": 7,
     "message": "你好",
     "sender": {"nickname": "小明"},

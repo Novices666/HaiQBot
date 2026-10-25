@@ -125,14 +125,14 @@ async def test_tick_sends_text_and_advances(store: Store) -> None:
             "kind": "interval",
             "schedule": {"seconds": 60},
             "action": "send_text",
-            "params": {"channel": "onebot:group:674425800", "text": "早上好"},
+            "params": {"channel": "onebot:group:200000001", "text": "早上好"},
         }
     )
     # 把下次执行时间挪到过去，模拟「到点了」
     await store.job_mark_run(row["id"], status="pending", error=None, next_run_at=time.time() - 1, ran_at=0.0)
 
     assert await service.tick() == 1
-    assert adapter.sent == [{"channel": "onebot:group:674425800", "text": "早上好", "plugin_id": "core:job"}]
+    assert adapter.sent == [{"channel": "onebot:group:200000001", "text": "早上好", "plugin_id": "core:job"}]
 
     after = await store.job_get(row["id"])
     assert after is not None

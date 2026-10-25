@@ -85,7 +85,7 @@ def _check_params(action: str, params: Any) -> dict[str, Any]:
     channel = str(params.get("channel", "")).strip()
     text = str(params.get("text", ""))
     if not channel:
-        raise JobError("send_text 需要 params.channel，例如 onebot:group:674425800")
+        raise JobError("send_text 需要 params.channel，例如 onebot:group:200000001")
     from haiqbot.core.channel import ChannelId
 
     try:

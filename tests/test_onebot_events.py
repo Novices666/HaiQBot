@@ -26,7 +26,7 @@ def _adapter(push: Any = None) -> OneBotAdapter:
     return OneBotAdapter(OneBotCfg(), token_provider=lambda: None, push=push)
 
 
-GROUP = ChannelId("onebot", ChannelKind.GROUP, "674425800")
+GROUP = ChannelId("onebot", ChannelKind.GROUP, "200000001")
 
 
 # --------------------------------------------------------------------------- #
@@ -37,8 +37,8 @@ def test_group_message_keeps_group_id_in_raw() -> None:
         {
             "post_type": "message",
             "message_type": "group",
-            "group_id": 674425800,
-            "user_id": 1291944421,
+            "group_id": 200000001,
+            "user_id": 100000001,
             "message_id": 42,
             "message": "你好",
             "sender": {"nickname": "小明"},
@@ -46,9 +46,9 @@ def test_group_message_keeps_group_id_in_raw() -> None:
     )
     assert isinstance(event, MessageEvent)
     assert event.channel.kind is ChannelKind.GROUP
-    assert event.channel.id == "674425800"
+    assert event.channel.id == "200000001"
     # raw 现在忠实保留原始上报：group_id 是协议端的 int，channel.id 才是规范化后的 str
-    assert event.raw["group_id"] == 674425800, "插件常要原始群号，别丢"
+    assert event.raw["group_id"] == 200000001, "插件常要原始群号，别丢"
     assert "sender" in event.raw and event.raw["sender"]["nickname"] == "小明"
     assert event.text == "你好"
 
@@ -59,7 +59,7 @@ def test_group_increase_notice() -> None:
             "post_type": "notice",
             "notice_type": "group_increase",
             "sub_type": "approve",
-            "group_id": 674425800,
+            "group_id": 200000001,
             "user_id": 111,
             "operator_id": 222,
         }
@@ -79,7 +79,7 @@ def test_recall_notice_carries_message_id() -> None:
         {
             "post_type": "notice",
             "notice_type": "group_recall",
-            "group_id": 674425800,
+            "group_id": 200000001,
             "user_id": 111,
             "operator_id": 111,
             "message_id": 987654,
@@ -96,7 +96,7 @@ def test_poke_uses_sender_as_operator() -> None:
             "post_type": "notice",
             "notice_type": "notify",
             "sub_type": "poke",
-            "group_id": 674425800,
+            "group_id": 200000001,
             "user_id": 111,
             "target_id": 111,
             "sender_id": 333,
@@ -116,7 +116,7 @@ def test_group_request() -> None:
             "post_type": "request",
             "request_type": "group",
             "sub_type": "add",
-            "group_id": 674425800,
+            "group_id": 200000001,
             "user_id": 111,
             "comment": "求进群",
             "flag": "abc123",
@@ -126,7 +126,7 @@ def test_group_request() -> None:
     assert event.kind is EventKind.REQUEST
     assert event.flag == "abc123"
     assert event.comment == "求进群"
-    assert event.group_id == "674425800"
+    assert event.group_id == "200000001"
     assert event.channel.kind is ChannelKind.GROUP
 
 
@@ -142,10 +142,10 @@ def test_friend_request_targets_private_channel() -> None:
 def test_heartbeat_is_swallowed_but_updates_bot_id() -> None:
     adapter = _adapter()
     event = adapter._parse_meta(
-        {"post_type": "meta_event", "meta_event_type": "heartbeat", "self_id": 1291944421}
+        {"post_type": "meta_event", "meta_event_type": "heartbeat", "self_id": 100000001}
     )
     assert event is None, "心跳每 30s 一条，不该进管线"
-    assert adapter.bot_id == "1291944421", "但要顺手记下自己的号"
+    assert adapter.bot_id == "100000001", "但要顺手记下自己的号"
 
 
 def test_lifecycle_meta_event_passes_through() -> None:
@@ -166,7 +166,7 @@ async def test_handle_event_dispatches_notice_and_ignores_message_sent() -> None
             "post_type": "notice",
             "notice_type": "group_ban",
             "sub_type": "ban",
-            "group_id": 674425800,
+            "group_id": 200000001,
             "user_id": 111,
             "operator_id": 222,
             "duration": 600,
@@ -226,7 +226,7 @@ async def test_kick_sends_group_kick() -> None:
     assert await adapter.kick(GROUP, "111", reject_add_request=True) is True
     assert calls[0] == (
         "set_group_kick",
-        {"group_id": 674425800, "user_id": 111, "reject_add_request": True},
+        {"group_id": 200000001, "user_id": 111, "reject_add_request": True},
     )
 
 

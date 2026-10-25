@@ -18,7 +18,7 @@ from haiqbot.core.channel import ChannelId, ChannelKind
 from haiqbot.core.reply import PlatformCapabilities
 from haiqbot.core.segment import ForwardNode, Segment, SegmentKind, segments_to_text
 
-GROUP = ChannelId("onebot", ChannelKind.GROUP, "674425800")
+GROUP = ChannelId("onebot", ChannelKind.GROUP, "200000001")
 PRIVATE = ChannelId("onebot", ChannelKind.PRIVATE, "111")
 
 
@@ -122,7 +122,7 @@ async def test_forward_uses_dedicated_action() -> None:
     assert await adapter.send_forward(GROUP, nodes) == "fwd-9"
     action, params = calls[0]
     assert action == "send_group_forward_msg"
-    assert params["group_id"] == 674425800
+    assert params["group_id"] == 200000001
     # 协议要求每个节点包一层 {"type": "node", "data": ...}
     assert params["messages"][0]["type"] == "node"
     assert params["messages"][1]["data"] == {"id": "999"}

@@ -26,7 +26,7 @@ def _group_message(**over) -> dict:
     payload = {
         "post_type": "message",
         "message_type": "group",
-        "group_id": 674425800,
+        "group_id": 200000001,
         "user_id": 10001,
         "message_id": 42,
         "message": "hi",
@@ -41,17 +41,17 @@ def _group_message(**over) -> dict:
 # --------------------------------------------------------------------------- #
 def test_self_id_from_config_used_when_payload_lacks_it() -> None:
     """payload 没有 self_id 时，配置值要能撑起 at_bot 判定。"""
-    adapter = _adapter(self_id="1291944421")
+    adapter = _adapter(self_id="100000001")
     event = adapter._parse_message(
         _group_message(
             message=[
-                {"type": "at", "data": {"qq": "1291944421"}},
+                {"type": "at", "data": {"qq": "100000001"}},
                 {"type": "text", "data": {"text": " /echo hi"}},
             ],
         )
     )
     assert event is not None
-    assert event.bot_id == "1291944421"
+    assert event.bot_id == "100000001"
     assert event.at_bot is True, "配置里有 self_id 才能算出「被 @ 了」"
 
 
@@ -59,18 +59,38 @@ def test_self_id_from_payload_wins() -> None:
     """payload 里的 self_id 更新，且会覆盖配置。"""
     adapter = _adapter(self_id="111")
     event = adapter._parse_message(_group_message(self_id=222))
-    assert event is not None
     assert event.bot_id == "222"
+
+
+def test_empty_config_self_id_learned_from_heartbeat() -> None:
+    """默认配置里 `self_id` 为空：靠心跳学出自己是谁，之后 at_bot 才算得出来。
+
+    这是现在 shipping 的默认形态（`haiq.toml` 不写真实 QQ 号），所以要有一条守着它。
+    """
+    adapter = _adapter(self_id="")
+    adapter._parse_meta({"post_type": "meta_event", "meta_event_type": "heartbeat", "self_id": 100000001})
+    assert adapter.bot_id == "100000001"
+
+    event = adapter._parse_message(
+        _group_message(
+            message=[
+                {"type": "at", "data": {"qq": "100000001"}},
+                {"type": "text", "data": {"text": " /echo hi"}},
+            ]
+        )
+    )
+    assert event is not None
+    assert event.at_bot is True
 
 
 def test_self_message_is_dropped() -> None:
     """协议端把机器人自己发的消息当普通 message 推上来 → 必须丢，否则自问自答。"""
-    adapter = _adapter(self_id="1291944421")
-    assert adapter._parse_message(_group_message(user_id=1291944421)) is None
+    adapter = _adapter(self_id="100000001")
+    assert adapter._parse_message(_group_message(user_id=100000001)) is None
 
 
 def test_other_user_message_survives() -> None:
-    adapter = _adapter(self_id="1291944421")
+    adapter = _adapter(self_id="100000001")
     event = adapter._parse_message(_group_message(user_id=10001))
     assert event is not None
     assert event.actor.id == "10001"
@@ -84,12 +104,12 @@ def test_heartbeat_records_time_interval_and_identity() -> None:
     assert adapter._last_heartbeat is None
 
     event = adapter._parse_meta(
-        {"post_type": "meta_event", "meta_event_type": "heartbeat", "self_id": 1291944421, "interval": 10000}
+        {"post_type": "meta_event", "meta_event_type": "heartbeat", "self_id": 100000001, "interval": 10000}
     )
     assert event is None, "心跳不进管线（每 30s 一条，纯噪音）"
     assert adapter._last_heartbeat is not None
     assert adapter._heartbeat_interval == 10.0, "interval 是毫秒"
-    assert adapter.bot_id == "1291944421", "心跳也带 self_id，顺手记下身份"
+    assert adapter.bot_id == "100000001", "心跳也带 self_id，顺手记下身份"
 
 
 def test_heartbeat_without_interval_keeps_default() -> None:
@@ -139,7 +159,7 @@ async def test_runtime_marks_degraded_on_stale_heartbeat() -> None:
         idempotency=Idempotency(None),  # type: ignore[arg-type]
         audit=AuditLog(None),  # type: ignore[arg-type]
     )
-    adapter = _adapter(self_id="1291944421")
+    adapter = _adapter(self_id="100000001")
     adapter._connected.set()  # TCP 还连着
     adapter._last_heartbeat = time.time() - 200  # 但心跳早停了
     rt.adapters = {"onebot": adapter}

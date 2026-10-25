@@ -70,9 +70,10 @@ webhook_secret_ref = ""
 # mode=sse：事件流路径
 sse_path = "/_events"
 access_token_ref = "HAIQ_ONEBOT_ACCESS_TOKEN"
-# 机器人自己的 QQ 号。心跳和事件里一般也会带 self_id，这里填上是为了
-# 让 http/sse 模式（协议端可能不发 meta_event）也能算出 at_bot、过滤自己发的消息。
-self_id = "1291944421"
+# 机器人自己的 QQ 号。**留空即可**：事件和心跳里都带 self_id，适配器会自己记下来
+# （NapCat 的 heartbeat 就带 self_id）。只有当协议端从不发 meta_event 时，
+# 才需要在这里兜底填一个号。
+self_id = ""
 # 图片怎么发：auto（有本地文件就内嵌 base64，无需公网）/ base64 / url
 image_transport = "auto"
 # 控制类 API 超时 / 带媒体发送的超时（大图上传要留时间，别用 15s）
