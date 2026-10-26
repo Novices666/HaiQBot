@@ -308,6 +308,41 @@ OneBot 路线两个已知坑，都已在代码里修掉，若从旧版本升级�
 **开关体检**：`haiq channels verify` 会把「配了却不生效」的情况点出来（插件名拼错、
 未声明的 feature、`enabled=1` 但列表为空、always 插件写多余了）。有 error 时退出码 1。
 
+## 协议端怎么部署：Docker 还是 Windows 原生
+
+两种形态跑的是**同一份 NapCat**，区别只在 QQ 客户端跑在哪：
+
+| 形态 | QQ 在哪 | 媒体上传受谁影响 |
+| :--- | :--- | :--- |
+| Docker（`mlikiowa/napcat-docker`） | 容器内的 Linux QQ | 宿主机代理 / TUN 会劫持容器出站 → 发图失败 |
+| Windows 原生（`NapCat.Shell`） | 本机一份独立 QQ | 直接走宿主网络，没有容器这一层 |
+
+同一账号、同一 `image_transport = "auto"` 下的实测对比：
+
+| | Docker | Windows 原生 |
+| :--- | :--- | :--- |
+| 成功率 | 11 次里 1 次（9%） | 单次验证成功，长期未测 |
+| 耗时 | 失败时 21 秒以上超时 | `outbound_media_sent elapsed_ms=4125`（2.3 MB PNG） |
+| 报错 | `Timeout` / `rich media transfer failed` | 无重试、无异常 |
+
+**结论：发图失败优先怀疑容器网络，而不是腾讯侧限制。**
+上方「本机代理」那条只解释了 Docker 形态下的现象；如果关掉代理仍然发不出去，
+换 Windows 原生版本是成本最低的验证手段——`haiq.toml` 一行都不用改，
+协议端仍是 `ws://127.0.0.1:3001`。
+
+### Windows 原生的两个坑（实测）
+
+1. **不要直接用官方 `launcher.bat`。** 它从注册表
+   （`HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\QQ`）
+   读 QQ 路径，多数机器上指向**用户自己正在用的 QQ** —— 直接跑会把个人号注入成 bot。
+   要自己写启动脚本，把 QQ 路径写死到 NapCat 目录下那份独立 QQ。
+2. **不需要管理员权限。** 官方脚本用 `net session` 强制要求管理员，
+   实测非提权即可启动并完成注入，可以省掉 UAC。
+
+另外：`NapCat.Shell.Windows.OneKey.zip` 只有 0.9 MB，但会再下 300 MB 的 QQ；
+它走镜像下载极慢（实测 50 秒才 3%），直接从 GitHub release 取
+`NapCat.Shell.zip` 反而快（34 MB / 20 秒）。
+
 ## 图片发不出去？先看这三件事
 
 排障顺序别搞反，前两条占了绝大多数。
