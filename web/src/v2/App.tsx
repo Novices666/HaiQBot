@@ -138,7 +138,7 @@ function Login({ onDone }: { onDone: (s: Session) => void }) {
 
         <Typography.Paragraph type="secondary" style={{ marginBottom: 20 }}>
 
-          粘贴面板令牌（haiq secrets export HAIQ_WEBUI_TOKEN 可取）。
+          粘贴面板令牌：忘了就运行 haiq webui token --generate 重新生成（旧令牌立即失效，不用重启）。
 
         </Typography.Paragraph>
 

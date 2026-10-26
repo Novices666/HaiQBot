@@ -60,8 +60,8 @@ uv run haiq run --demo                     # 零成本演示（Mock，跑完即�
 > （或把它放进服务环境变量 / Docker `env_file`），再照常用 `uv run haiq <子命令>`。
 
 > **仓库自带 `haiq.toml`**，不需要 `haiq init`（它只给空环境用，且拒绝覆盖已有文件）。
-> 新装 `haiq doctor` 会报 4 个「凭据缺失」错误、退出码 2 —— 那是还没录凭据，不是装坏了。
-> 文字命令面板免认证；**启停插件、改配置要粘上面板令牌**。
+> 新装 `haiq doctor` 会报「凭据缺失」类错误、退出码 2 —— 那是还没录凭据，不是装坏了（几条取决于带着哪些插件）。
+> **整个面板都要登录**（读接口也不公开），令牌用 `haiq webui token --generate` 生成，只显示一次；会话 12 小时有效，重启进程不用重新登录。
 
 > **WebUI 已随包分发**（`src/haiqbot/webui/dist/` 是构建产物），跑起来不需要 Node.js。
 > 想改前端才需要 `cd web && npm ci && npm run dev`。
