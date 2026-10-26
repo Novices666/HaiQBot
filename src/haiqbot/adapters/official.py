@@ -25,7 +25,7 @@ from typing import Any
 
 from haiqbot.adapters.base import Adapter, PushFn
 from haiqbot.core.channel import Actor, ChannelId, ChannelKind, Role
-from haiqbot.core.errors import AdapterError, MediaSendError
+from haiqbot.core.errors import AdapterError, MediaSendError, RateLimited
 from haiqbot.core.event import EventKind, MessageEvent
 from haiqbot.core.reply import PlatformCapabilities
 from haiqbot.core.segment import Segment, SegmentKind
@@ -160,7 +160,7 @@ class OfficialClient:
         if code in CODES_MEDIA_FETCH_FAILED:
             return MediaSendError(f"{detail}（平台拉不到这个媒体 URL：检查是否公网可达 / 是否需要鉴权）")
         if code == str(CODE_RATE_LIMIT):
-            return AdapterError(f"{detail}（发送超频，稍后重试）")
+            return RateLimited(f"{detail}（发送超频：平台明确没发出去，可退避重试）")
         return AdapterError(detail)
 
     async def _post(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:

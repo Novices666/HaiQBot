@@ -52,6 +52,23 @@ class MediaSendError(AdapterError):
     """
 
 
+class RateLimited(AdapterError):
+    """平台明确回报「发送过于频繁，本次没发出去」。
+
+    为什么单独一个类型
+    ------------------
+    出站闸门的重试判据必须知道「能不能安全重试」，而这件事**只有适配器知道**：
+    平台错误码（OneBot 的 `retcode`、官方开放平台的 `code`）是实现细节，
+    内核不该认识任何一个。
+
+    所以约定：适配器把平台错误码翻成语义化异常，内核只认类型——
+
+    - `RateLimited`  → 明确没发出去，退避后**可以重试**
+    - `MediaSendError` → 媒体通道失败，重试只会加重风控，**不重试**
+    - 其余 `AdapterError` → 情况不明（可能已送达），**不重试**
+    """
+
+
 class ContractError(HaiqError):
     """插件之间的服务契约不满足：声明了依赖但没人提供、版本不够、或实现缺方法。"""
 

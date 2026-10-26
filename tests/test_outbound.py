@@ -11,7 +11,7 @@ import pytest
 from haiqbot.adapters.onebot11 import OneBotAdapter
 from haiqbot.config import OneBotCfg, OutboundCfg
 from haiqbot.core.channel import ChannelId, ChannelKind
-from haiqbot.core.errors import HaiqError
+from haiqbot.core.errors import AdapterError, HaiqError, RateLimited
 from haiqbot.core.segment import Segment
 from haiqbot.kernel.outbound import OutboundBusy, OutboundLimiter, is_rate_limited
 
@@ -34,12 +34,23 @@ def _cfg(**kw) -> OutboundCfg:
 
 
 def test_rate_limit_judge() -> None:
-    assert is_rate_limited(HaiqError("OneBot 发送失败：1200"))
-    assert is_rate_limited(HaiqError("发送过于频繁，请稍后再试"))
-    assert is_rate_limited(HaiqError("rate limit exceeded"))
-    # 超时/参数错误不该被当成频控 —— 重试只会把同一条消息发两遍
-    assert not is_rate_limited(HaiqError("OneBot 调用超时：send_group_msg（15s）"))
-    assert not is_rate_limited(HaiqError("消息太长"))
+    """内核只认异常类型，不做任何字符串/错误码匹配。
+
+    平台错误码是适配器的实现细节：OneBot 用 `retcode`，官方开放平台用 `code`，
+    下一个协议端还会有别的。内核认识它们就等于把平台焊死在核心里。
+    """
+    assert is_rate_limited(RateLimited("OneBot 发送失败：1200"))
+    # 平台码长什么样、文案怎么写，内核一律不关心
+    assert is_rate_limited(RateLimited("whatever the platform says"))
+
+    # 关键断言：同样的文案/错误码放在普通异常上，内核**不会**重试。
+    # 这正是解耦的证明 —— 换平台只需要换适配器，内核行为不变。
+    assert not is_rate_limited(HaiqError("发送过于频繁，请稍后再试"))
+    assert not is_rate_limited(AdapterError("OneBot 发送失败：1200"))
+
+    # 超时/参数错误更不该被当成频控 —— 重试只会把同一条消息发两遍
+    assert not is_rate_limited(AdapterError("OneBot 调用超时：send_group_msg（15s）"))
+    assert not is_rate_limited(AdapterError("消息太长"))
 
 
 # -- 间隔与串行 ------------------------------------------------------------- #
@@ -116,7 +127,7 @@ async def test_retries_rate_limit_then_succeeds() -> None:
     async def flaky() -> str:
         calls.append(1)
         if len(calls) < 3:
-            raise HaiqError("发送过于频繁")
+            raise RateLimited("发送过于频繁")
         return "ok"
 
     assert await gate.send("onebot:group:1", flaky) == "ok"
@@ -130,7 +141,7 @@ async def test_gives_up_after_retry_budget() -> None:
 
     async def always() -> None:
         calls.append(1)
-        raise HaiqError("too frequent")
+        raise RateLimited("too frequent")
 
     with pytest.raises(HaiqError):
         await gate.send("onebot:group:1", always)
@@ -233,3 +244,33 @@ async def test_onebot_send_retries_when_rate_limited(tmp_path: Path) -> None:
     mid = await adapter.send_message(ChannelId("onebot", ChannelKind.GROUP, "123"), [Segment.text("x")])
     assert mid == "2"
     assert len(calls) == 2
+
+
+def test_onebot_translates_platform_codes() -> None:
+    """OneBot 侧：`retcode` / 文案必须被翻成语义化异常，而不是原样冒泡。"""
+    from haiqbot.adapters.onebot11 import _check_response
+
+    with pytest.raises(RateLimited):
+        _check_response("send_group_msg", {"status": "failed", "retcode": 1200})
+    with pytest.raises(RateLimited):
+        _check_response("send_group_msg", {"status": "failed", "retcode": 22009})
+    # 文案兜底：不同协议端措辞不一样，光看码会漏
+    with pytest.raises(RateLimited):
+        _check_response("send_group_msg", {"status": "failed", "wording": "发送过于频繁"})
+    # 普通失败仍应是 AdapterError（不重试），不能被误判成频控
+    with pytest.raises(AdapterError) as exc_info:
+        _check_response("send_group_msg", {"status": "failed", "retcode": 100, "wording": "参数错误"})
+    assert not isinstance(exc_info.value, RateLimited)
+    # 成功不应抛
+    assert _check_response("send_group_msg", {"status": "ok", "retcode": 0})["retcode"] == 0
+
+
+def test_official_translates_platform_codes() -> None:
+    """官方开放平台侧：22009（msg limit exceed）同样要翻成 `RateLimited`。"""
+    from haiqbot.adapters.official import CODE_RATE_LIMIT, OfficialClient
+
+    err = OfficialClient._failure(400, str(CODE_RATE_LIMIT), "msg limit exceed")
+    assert isinstance(err, RateLimited)
+
+    other = OfficialClient._failure(400, "123456", "some other error")
+    assert not isinstance(other, RateLimited)

@@ -24,7 +24,7 @@ from typing import Any
 from haiqbot.adapters.base import Adapter, PushFn
 from haiqbot.config import OneBotCfg
 from haiqbot.core.channel import Actor, ChannelId, ChannelKind, Role
-from haiqbot.core.errors import AdapterError, MediaSendError
+from haiqbot.core.errors import AdapterError, MediaSendError, RateLimited
 from haiqbot.core.event import Event, EventKind, MessageEvent, NoticeEvent, RequestEvent
 from haiqbot.core.reply import PlatformCapabilities
 from haiqbot.core.segment import Segment, SegmentKind
@@ -735,7 +735,10 @@ class OneBotAdapter(Adapter):
         else:
             raise AdapterError(f"OneBot 适配器不支持该频道类型：{channel.kind}")
         if resp.get("status") == "failed":
-            raise AdapterError(f"OneBot 发送失败：{resp.get('retcode')}")
+            # 兜底：正常路径上 call() 已经过 _check_response 拦过一次；这里防的是
+            # call 被替换/旁路的情况。语义必须一致 —— 走同一个翻译，
+            # 否则频控错误会退化成普通 AdapterError，出站闸门就不会重试了。
+            _check_response("send_message", resp)
         data = resp.get("data") or {}
         sent_id = str(data.get("message_id")) if data.get("message_id") is not None else None
         if has_media:
@@ -1305,6 +1308,37 @@ class OneBotAdapter(Adapter):
 _OK_RETCODES = (0, 1, None)
 
 
+# 频控类错误的关键特征。这里是**唯一**该认识 OneBot 错误码的地方：
+# 内核只认语义化异常（`RateLimited`），不认任何平台码。
+# - retcode 1200/1201/1202：部分 OneBot 实现自定义的「发送过于频繁」，
+#   但 1200 在另一些实现里是通用发送失败 —— 所以只能宽松匹配，不能当成可靠契约。
+# - 22009 = QQ 官方开放平台「msg limit exceed」
+# - 文案兜底：不同协议端/本地化的措辞不一样，光看码会漏。
+_RATE_HINTS = (
+    "频繁",
+    "太快",
+    "发送过快",
+    "超频",
+    "风控",
+    "rate limit",
+    "too fast",
+    "too frequent",
+    "frequency",
+    "limit exceed",
+)
+_RATE_RETCODES = {1200, 1201, 1202, 22009}
+
+
+def _is_rate_limited(retcode: Any, detail: str) -> bool:
+    """这条失败是否属于「平台明确限速、本次没发出去」。"""
+    text = str(detail or "").lower()
+    if any(hint in text for hint in _RATE_HINTS):
+        return True
+    if retcode in _RATE_RETCODES:
+        return True
+    return any(str(code) in text for code in _RATE_RETCODES)
+
+
 #: NapCat/QQ NT 有时会先报「发消息事件回执超时」，但消息其实已经进群了。
 #: 媒体发送失败的两种典型签名（都来自 QQ NT，不是"我们等太久"）：
 #:   Timeout: NTEvent ... sendMsg              -> 上传没在窗口内完成
@@ -1330,8 +1364,14 @@ def _is_media_send_failure(action: str, detail: Any) -> bool:
 def _check_response(action: str, resp: Any) -> dict[str, Any]:
     """把协议端返回的失败转成异常，避免"假成功"。
 
-    媒体失败是个特例：它不是普通错误，而是「图片没进群」，且**不能重试**。
-    所以这里抛 `MediaSendError`，由插件把原因说清楚（见 painter 的生成/发送失败分报）。
+    这里做的是**语义翻译**：把 OneBot 的 `retcode` / 文案翻成内核认识的异常类型。
+    内核只认类型，不认识任何平台错误码：
+
+    - `MediaSendError` → 媒体没进群，**不重试**
+    - `RateLimited`    → 平台明确限速、本条没发出去，**可以退避重试**
+    - `AdapterError`   → 情况不明（可能已送达），**不重试**
+
+    「情况不明不重试」是刻意的：重试一个可能已送达的请求 = 群里出现两条一样的消息。
     """
     if not isinstance(resp, dict):
         return {"status": "ok", "data": resp}
@@ -1347,6 +1387,9 @@ def _check_response(action: str, resp: Any) -> dict[str, Any]:
             )
             log.warning("onebot_media_rejected", action=action, reason=reason)
             raise MediaSendError(f"媒体消息未送达：{reason}")
+        if _is_rate_limited(retcode, str(detail)):
+            log.warning("onebot_rate_limited", action=action, retcode=retcode)
+            raise RateLimited(f"OneBot {action} 被限速（retcode={retcode}）：{detail}")
         raise AdapterError(f"OneBot {action} 失败（retcode={retcode}）：{detail}")
     return resp
 

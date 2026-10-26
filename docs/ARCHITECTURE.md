@@ -155,6 +155,26 @@ Windows「Internet 选项 → 局域网设置」里的代理会被 `httpx`（`tr
 - 本地验证回源时用 `httpx.AsyncClient(trust_env=False)`；
 - `haiq doctor` 会打印检测到的系统代理与 `no_proxy` 例外。
 
+## 平台错误码不进内核（异常语义化）
+
+「这次失败能不能重试」只有适配器知道，因为平台错误码是实现细节：
+OneBot 用 `retcode`，QQ 官方开放平台用 `code`，下一个协议端还会有别的。
+所以约定是**适配器翻译、内核只认类型**：
+
+| 异常 | 含义 | 出站闸门行为 |
+| :--- | :--- | :--- |
+| `RateLimited` | 平台明确回报「发太频」，这次确实没发出去 | 退避后**重试**（`retry_max` 次） |
+| `MediaSendError` | 图片/语音/文件没送达 | **不重试**，插件如实报「发送失败」 |
+| 其余 `AdapterError` / 超时 | 情况不明，可能已经送达 | **不重试**（重试 = 群里出现两条一样的消息） |
+
+`kernel/outbound.py::is_rate_limited()` 因此只剩一句 `isinstance(exc, RateLimited)`，
+没有任何字符串或错误码匹配。要新增一个协议端，只需在它的适配器里把本平台错误码
+翻成这三类，内核一行都不用改。
+
+OneBot 侧的翻译点只有一个：`adapters/onebot11.py::_check_response()` ——
+`retcode` 与文案双判据（`1200` 在不同实现里含义不统一，光看码会误判）。
+官方开放平台的翻译点在 `adapters/official.py::OfficialClient._failure()`。
+
 ## 模块速查
 
 | 路径 | 职责 |

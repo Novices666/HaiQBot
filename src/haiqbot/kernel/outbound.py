@@ -18,8 +18,10 @@ QQ 对同一个账号在短时间内的发送频率有阈值。超了的代价�
 重试语义（重要）
 ----------------
 发送不是幂等的。重试一个"可能已经投递成功"的请求 = 群里出现两条一样的消息。
-因此默认判据 `is_rate_limited` 只认平台明确回报的**频控类**错误；超时 **不重试**
-（超时可能已经送达），由调用方决定是否补发。
+因此默认判据只认适配器抛出的 `RateLimited` —— 那是**适配器**把平台错误码
+（OneBot 的 retcode、官方平台的 code）翻译之后的语义结论：「明确没发出去」。
+内核不认识任何平台错误码。超时与其余 `AdapterError` 一律**不重试**，因为
+它们可能已经送达，由调用方决定是否补发。
 """
 
 from __future__ import annotations
@@ -30,19 +32,15 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
-from haiqbot.core.errors import HaiqError, MediaSendError
+from haiqbot.core.errors import HaiqError, MediaSendError, RateLimited
 from haiqbot.kernel.log import get_logger
 
 log = get_logger(__name__)
 
 T = TypeVar("T")
 
-# 频控类错误的关键特征。NapCat / OneBot 实现各写各的，只能宽松匹配：
-# - retcode 1200/1201/1202：OneBot 实现里常见的"发送过于频繁"
-# - 文本里带"频繁 / 太快 / 风控 / rate limit / too fast"
-_RATE_HINTS = ("频繁", "太快", "发送过快", "风控", "rate limit", "too fast", "too frequent", "frequency")
-# 1200-1202 = OneBot 侧风控/超频；22009 = QQ 官方「msg limit exceed」
-_RATE_RETCODES = {1200, 1201, 1202, 22009}
+# 平台错误码不在这里。适配器负责把「平台说什么」翻成「能不能重试」：
+# `RateLimited` = 明确没发出去，可以退避重试；其余一律不重试。
 
 
 class OutboundBusy(HaiqError):
@@ -50,14 +48,13 @@ class OutboundBusy(HaiqError):
 
 
 def is_rate_limited(exc: BaseException) -> bool:
-    """失败是否属于"被平台限速、明确没发出去"。"""
-    text = str(exc).lower()
-    if any(h in text for h in _RATE_HINTS):
-        return True
-    for code in _RATE_RETCODES:
-        if str(code) in text:
-            return True
-    return False
+    """失败是否属于"被平台限速、明确没发出去"。
+
+    只认异常类型，不做字符串匹配 —— 这是内核与具体平台解耦的关键点：
+    新增一个协议端只需要在自己的适配器里把错误码翻成 `RateLimited`，
+    内核一行都不用改。
+    """
+    return isinstance(exc, RateLimited)
 
 
 class OutboundLimiter:
