@@ -192,3 +192,18 @@ export type InvocationRow = {
   error?: string | null;
   [key: string]: unknown;
 };
+
+/** `/api/services` 的单项：运行时真实注册的能力提供者。 */
+export type ServiceInfo = {
+  owner?: string | null;
+  spec?: unknown;
+};
+
+/** `/api/invocations/stats` 的形状：按「能力 + 状态」聚合。 */
+export type InvocationStat = {
+  capability: string | null;
+  status: string | null;
+  n: number;
+  avg_ms: number | null;
+  max_ms: number | null;
+};

@@ -122,9 +122,16 @@ class FakeAudit:
 
 
 class FakeAdapter:
+    # 类级：测试里拿不到 runtime 里那个实例，所以用类属性记录发送
+    sent: list[dict[str, Any]] = []
+
     def describe(self) -> dict[str, Any]:
 
         return {"platform": "onebot", "bot_id": "1000", "health": {"connected": True}}
+
+    async def send_text(self, channel: Any, text: str, **kw: Any) -> str:
+        FakeAdapter.sent.append({"channel": str(channel), "text": text, **kw})
+        return "mid-workbench-1"
 
 
 class FakeBus:
@@ -771,3 +778,122 @@ def test_font_mime_types_registered():
 
     assert mimetypes.guess_type("a.woff2")[0] == "font/woff2"
     assert mimetypes.guess_type("a.woff")[0] == "font/woff"
+
+
+# --------------------------------------------------------------------------- #
+# 工作台真发
+# --------------------------------------------------------------------------- #
+
+
+def test_workbench_send_requires_confirm(tmp_path: Path) -> None:
+    """不带 confirm=true 一律不发：这是防误触的硬门槛。"""
+    client = _client(tmp_path)
+    csrf = _login(client)
+    resp = client.post(
+        "/api/workbench/send",
+        json={"text": "hi", "channel_kind": "group", "channel_id": "123"},
+        headers={"X-Haiq-CSRF": csrf},
+    )
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["error"]["code"] == "confirm_required"
+
+
+def test_workbench_send_rejected_in_readonly(tmp_path: Path) -> None:
+    client = _client(tmp_path, write_enabled=False)
+    csrf = _login(client)
+    resp = client.post(
+        "/api/workbench/send",
+        json={"text": "hi", "channel_id": "123", "confirm": True},
+        headers={"X-Haiq-CSRF": csrf},
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["error"]["code"] == "readonly"
+
+
+def test_workbench_send_validates_input(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    csrf = _login(client)
+    blank = client.post(
+        "/api/workbench/send",
+        json={"text": "   ", "channel_id": "123", "confirm": True},
+        headers={"X-Haiq-CSRF": csrf},
+    )
+    assert blank.status_code == 400
+
+    no_channel = client.post(
+        "/api/workbench/send",
+        json={"text": "hi", "channel_id": "", "confirm": True},
+        headers={"X-Haiq-CSRF": csrf},
+    )
+    assert no_channel.status_code == 400
+
+    too_long = client.post(
+        "/api/workbench/send",
+        json={"text": "x" * 4001, "channel_id": "123", "confirm": True},
+        headers={"X-Haiq-CSRF": csrf},
+    )
+    assert too_long.status_code == 400
+
+
+def test_workbench_send_unknown_platform(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    csrf = _login(client)
+    resp = client.post(
+        "/api/workbench/send",
+        json={"text": "hi", "platform": "telegram", "channel_id": "123", "confirm": True},
+        headers={"X-Haiq-CSRF": csrf},
+    )
+    assert resp.status_code == 404, resp.text
+    assert resp.json()["error"]["code"] == "unknown_platform"
+
+
+def test_workbench_send_delivers_via_adapter(tmp_path: Path) -> None:
+    """真发必须走 adapter.send_text（因此仍经过出站闸门），并写审计。"""
+    FakeAdapter.sent.clear()
+    client = _client(tmp_path)
+    csrf = _login(client)
+    resp = client.post(
+        "/api/workbench/send",
+        json={
+            "text": "链路测试",
+            "platform": "onebot",
+            "channel_kind": "group",
+            "channel_id": "674425800",
+            "confirm": True,
+        },
+        headers={"X-Haiq-CSRF": csrf},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["sent"] is True
+    assert data["message_id"] == "mid-workbench-1"
+    assert data["channel"] == "onebot:group:674425800"
+
+    assert len(FakeAdapter.sent) == 1
+    call = FakeAdapter.sent[0]
+    assert call["text"] == "链路测试"
+    # 交了 plugin_id，出站闸门的日志/观测才能区分是不是面板发的
+    assert call["plugin_id"] == "webui:workbench"
+
+
+def test_workbench_send_reports_adapter_failure(tmp_path: Path) -> None:
+    """适配器报错要原样带回面板，不能被吞成 200。"""
+    client = _client(tmp_path)
+    csrf = _login(client)
+    original = FakeAdapter.send_text
+
+    async def boom(self: Any, channel: Any, text: str, **kw: Any) -> str:
+        raise RuntimeError("adapter down")
+
+    FakeAdapter.send_text = boom  # type: ignore[method-assign]
+    try:
+        resp = client.post(
+            "/api/workbench/send",
+            json={"text": "hi", "channel_id": "123", "confirm": True},
+            headers={"X-Haiq-CSRF": csrf},
+        )
+        assert resp.status_code == 502, resp.text
+        assert resp.json()["error"]["code"] == "send_failed"
+        assert "adapter down" in resp.json()["error"]["message"]
+    finally:
+        FakeAdapter.send_text = original  # type: ignore[method-assign]

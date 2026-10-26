@@ -15,7 +15,7 @@
 | 写操作额外要 `X-Haiq-CSRF` | SameSite=Lax 已挡大部分跨站；反代场景下不保险，双保险成本极低 |
 | **日志走 SSE，其余轮询** | 日志是唯一「刷得够快才有用」的页面，用 `EventSource`；其它页 1~3 秒轮询，少一层长连接故障面 |
 | **列表接口永不返回值** | 列表只给「已设置 / 未设置」；要看单条明文必须单独请求，且每次都写 `secret.reveal` 审计 |
-| 工作台只预演 | 不调用 `rule.invoker`，否则面板就变成"远程执行入口" |
+| **工作台预演 ≠ 真发** | 预演不调用 `rule.invoker`（否则面板就变成"远程执行入口"）；真发是另一个端点，只发文本、不触发插件 |
 | dist 入库 | 部署与 CI 不需要 node；`npm run build` 只在前端改动时跑 |
 
 ---
@@ -49,7 +49,7 @@ GET  /api/auth/session                 → 当前会话信息（前端启动时�
 | 渠道 | `GET /api/channels`、`POST /api/channels/{channel}`、`DELETE /api/channels/{channel}` |
 | 媒体 | `GET /api/media`、`DELETE /api/media/{id}`、**`GET /i/{id}`（唯一保留的旧路由：已发消息里的图片 URL 指向它）** |
 | 调用 | `GET /api/invocations`、`GET /api/invocations/stats`、`POST /api/invocations/delete` |
-| 工作台 | `POST /api/workbench/parse`（dry-run） |
+| 工作台 | `POST /api/workbench/parse`（dry-run 预演）、`POST /api/workbench/send`（真发文本，必须 `confirm=true`） |
 | 凭据 | `GET /api/secrets`（列表，不含值）、`GET /api/secrets/{key}`（单条明文，写审计）、`POST /api/secrets`（写入）、`DELETE /api/secrets/{key}`、`POST /api/secrets/passwd`（轮换主口令） |
 | 定时任务 | `GET /api/jobs`、`POST /api/jobs`、`POST /api/jobs/{id}/{enable,disable,run}`、`DELETE /api/jobs/{id}` |
 | 插件页面 | `GET /api/panels`、`GET /api/panels/{pid}`、`POST /api/panels/{pid}/action` |
@@ -113,3 +113,40 @@ web/src/
 
 `GET /api/channels/verify` → `{problems, summary}`，页面顶部按 `error/warn/info` 显示红/黄/绿横幅，
 每条问题后面带「去修」直接打开该频道的编辑抽屉。
+
+## 工作台：预演与真发是两件事
+
+| | 预演 `POST /api/workbench/parse` | 真发 `POST /api/workbench/send` |
+| :--- | :--- | :--- |
+| 调用插件 handler | **不会** | **不会** |
+| 真的发出消息 | 不会 | **会**（只发文本，不构造图片/文件） |
+| 经过出站闸门 | 不涉及 | **会**（同频道串行 + 最小间隔 + 全局限速 + 频控退避） |
+| 需要的开关 | 无 | `confirm: true`，且面板不能是只读模式 |
+| 写审计 | 无 | `webui:workbench.send` |
+
+为什么分成两个端点而不是给 `parse` 加参数：预演是**只读**的，真发有副作用。
+混在一个端点里，任何一次"手滑点错"的代价就从"看到一堆不匹配原因"变成了"群里多一条消息"。
+
+真发请求体：
+
+```json
+{"text": "链路测试", "platform": "onebot", "channel_kind": "group",
+ "channel_id": "674425800", "confirm": true}
+```
+
+失败一律回 502 `send_failed` 并带原始错误（例如 `MediaSendError: …`），
+不会把适配器的异常吞成 200。
+
+## 已有端点在前端的落点
+
+后端端点齐了不等于面板上能看见。以下四个此前"后端有、UI 没暴露"，现已接上：
+
+| 端点 | 落在哪 | 用途 |
+| :--- | :--- | :--- |
+| `GET /api/invocations/stats?hours=` | 日志 · 审计 · 媒体 → 调用流水 → 能力统计 | 按「能力 + 状态」聚合次数/平均/最大耗时 |
+| `POST /api/invocations/delete` | 调用流水 → 清理 | 只按「N 天前」删，后端拒绝空过滤 |
+| `GET /api/services` | 插件与能力 → 运行时能力与命令 → 能力提供者 | **运行时真实注册**的 owner（插件表里的 `provides` 只是声明，两者对不上说明注册失败） |
+| `GET /api/commands` | 插件与能力 → 运行时能力与命令 → 命令速查 | 全局命令清单，不用逐个展开插件 |
+
+`GET /api/config/raw` 没有单独接：配置页的「原始 TOML」标签读的是 `/api/config` 的 `raw` 字段，
+信息完全相同，多接一个入口只会多一条要维护的路径。

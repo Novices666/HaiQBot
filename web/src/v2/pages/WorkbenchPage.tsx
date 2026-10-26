@@ -1,4 +1,10 @@
-/** 命令工作台：只预演解析与匹配，不触发插件、不发消息。 */
+/**
+ * 命令工作台。
+ *
+ * 两件事分开做，前端也不合并：
+ *  1) 预演：只解析与匹配，不触发插件、不发消息；
+ *  2) 真发：把文本发到指定频道验证链路，必须手动打开开关才会启用按钮。
+ */
 import { useState } from "react";
 import {
   Alert,
@@ -22,6 +28,39 @@ import type { MatchedRule, ParseResult, SkippedRule } from "../types";
 export default function WorkbenchPage() {
   const [result, setResult] = useState<ParseResult | null>(null);
   const [running, setRunning] = useState(false);
+  const [form] = Form.useForm();
+  // 真发是「有副作用」的操作，默认关闭：必须人手动打开才可用
+  const [liveSend, setLiveSend] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  const realSend = async () => {
+    const values = form.getFieldsValue() as Record<string, unknown>;
+    const text = String(values.text ?? "").trim();
+    if (!text) {
+      message.warning("先在「消息文本」里写点东西");
+      return;
+    }
+    setSending(true);
+    try {
+      const data = await post<{ message_id: string | null; channel: string; chars: number }>(
+        "/api/workbench/send",
+        {
+          text,
+          platform: values.platform ?? "onebot",
+          channel_kind: values.channel_kind ?? "group",
+          channel_id: String(values.channel_id ?? ""),
+          confirm: true,
+        },
+      );
+      message.success(
+        `已发出（${data.channel}，message_id=${data.message_id ?? "协议端没回报"}）`,
+      );
+    } catch (exc) {
+      message.error((exc as Error).message);
+    } finally {
+      setSending(false);
+    }
+  };
 
   const run = async (values: Record<string, unknown>) => {
     setRunning(true);
@@ -47,13 +86,13 @@ export default function WorkbenchPage() {
       <Alert
         type="warning"
         showIcon
-        message="这里是「预演」而不是「执行」"
-        description="只做事件构造 + 规则匹配 + 参数解析，绝不调用插件 handler，也不会真的发消息。"
+        message="「预演」不会执行，「真发」才发消息"
+        description="预演只做事件构造 + 规则匹配 + 参数解析，绝不调用插件 handler。真发只把文本发到指定频道（不触发插件），必须手动打开开关才会启用按钮。"
       />
 
       <Card size="small" title="发一句话试试谁接管">
         <Form
-          layout="vertical"
+          form={form} layout="vertical"
           size="small"
           initialValues={{
             text: "",
@@ -108,13 +147,37 @@ export default function WorkbenchPage() {
               </Form.Item>
             </Col>
           </Row>
-          <Flex align="center" gap={16}>
+          <Flex align="center" gap={16} wrap>
             <Form.Item name="at_bot" label="@ 了机器人" valuePropName="checked" style={{ marginBottom: 0 }}>
               <Switch size="small" />
             </Form.Item>
             <Button type="primary" htmlType="submit" loading={running}>
               预演
             </Button>
+            <span style={{ color: "#d9d9d9" }}>|</span>
+            <Form.Item label="真发" style={{ marginBottom: 0 }}>
+              <Switch
+                size="small"
+                checked={liveSend}
+                onChange={setLiveSend}
+                checkedChildren="开"
+                unCheckedChildren="关"
+              />
+            </Form.Item>
+            <Button
+              danger
+              htmlType="button"
+              disabled={!liveSend}
+              loading={sending}
+              onClick={realSend}
+            >
+              真发到群
+            </Button>
+            {liveSend ? (
+              <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                真发只把文本发出去，不触发插件（照样经过出站闸门）
+              </Typography.Text>
+            ) : null}
           </Flex>
         </Form>
       </Card>

@@ -15,9 +15,9 @@ import {
   Typography,
   message,
 } from "antd";
-import { del, get } from "../../api";
+import { del, get, post } from "../../api";
 import { fmtTime, text, usePoll } from "../lib";
-import type { AuditRow, InvocationRow, LogPayload, LogRow, MediaRow } from "../types";
+import type { AuditRow, InvocationRow, InvocationStat, LogPayload, LogRow, MediaRow } from "../types";
 
 const LEVEL_COLOR: Record<string, string> = {
   debug: "default",
@@ -260,11 +260,99 @@ function MediaTab() {
 
 function InvocationTab() {
   const [filter, setFilter] = useState("");
-  const path = filter ? `/api/invocations?limit=200&plugin=${encodeURIComponent(filter)}` : "/api/invocations?limit=200";
+  const [hours, setHours] = useState(24);
+  const [purgeDays, setPurgeDays] = useState(7);
+  const [purging, setPurging] = useState(false);
+
+  const path = filter
+    ? `/api/invocations?limit=200&plugin=${encodeURIComponent(filter)}`
+    : "/api/invocations?limit=200";
   const rows = usePoll<InvocationRow[]>(path);
+  const stats = usePoll<InvocationStat[]>(`/api/invocations/stats?hours=${hours}`);
+
+  const purge = async () => {
+    // 只按「N 天前」删，绝不无条件清空整表（后端也拒绝空过滤）
+    const before = Math.floor(Date.now() / 1000) - purgeDays * 86400;
+    setPurging(true);
+    try {
+      const res = await post<{ deleted: number }>("/api/invocations/delete", {
+        before,
+        plugin_id: filter || null,
+      });
+      message.success(`已清理 ${res.deleted} 条（${purgeDays} 天前${filter ? `，插件 ${filter}` : ""}）`);
+      rows.reload();
+      stats.reload();
+    } catch (exc) {
+      message.error((exc as Error).message);
+    } finally {
+      setPurging(false);
+    }
+  };
+
   return (
-    <Flex vertical gap={8}>
-      <Space>
+    <Flex vertical gap={12}>
+      <Card
+        size="small"
+        title="能力统计"
+        extra={
+          <Space size={6}>
+            <Select
+              size="small"
+              style={{ width: 108 }}
+              value={hours}
+              onChange={setHours}
+              options={[
+                { value: 1, label: "近 1 小时" },
+                { value: 24, label: "近 24 小时" },
+                { value: 168, label: "近 7 天" },
+                { value: 720, label: "近 30 天" },
+              ]}
+            />
+            <Button size="small" onClick={() => stats.reload()}>
+              刷新
+            </Button>
+          </Space>
+        }
+      >
+        {stats.error ? <Alert type="error" showIcon message={stats.error.message} /> : null}
+        <Table<InvocationStat>
+          size="small"
+          rowKey={(r) => `${r.capability ?? "-"}:${r.status ?? "-"}`}
+          loading={!stats.data && !stats.error}
+          dataSource={stats.data ?? []}
+          pagination={false}
+          locale={{ emptyText: "这个时间窗内没有能力调用" }}
+          columns={[
+            { title: "能力", dataIndex: "capability", render: (v: unknown) => text(v, "—") },
+            {
+              title: "状态",
+              dataIndex: "status",
+              width: 90,
+              render: (v: unknown) =>
+                String(v).toLowerCase() === "ok" ? (
+                  <Tag color="green">成功</Tag>
+                ) : (
+                  <Tag color="red">{text(v, "失败")}</Tag>
+                ),
+            },
+            { title: "次数", dataIndex: "n", width: 90 },
+            {
+              title: "平均耗时",
+              dataIndex: "avg_ms",
+              width: 120,
+              render: (v: number | null) => (v == null ? "—" : `${Math.round(v)} ms`),
+            },
+            {
+              title: "最大耗时",
+              dataIndex: "max_ms",
+              width: 120,
+              render: (v: number | null) => (v == null ? "—" : `${Math.round(v)} ms`),
+            },
+          ]}
+        />
+      </Card>
+
+      <Flex align="center" gap={8} wrap>
         <Input
           size="small"
           style={{ width: 200 }}
@@ -276,7 +364,26 @@ function InvocationTab() {
         <Button size="small" onClick={() => rows.reload()}>
           刷新
         </Button>
-      </Space>
+        <span style={{ color: "#d9d9d9" }}>|</span>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          清理
+        </Typography.Text>
+        <Select
+          size="small"
+          style={{ width: 110 }}
+          value={purgeDays}
+          onChange={setPurgeDays}
+          options={[
+            { value: 1, label: "1 天前" },
+            { value: 7, label: "7 天前" },
+            { value: 30, label: "30 天前" },
+          ]}
+        />
+        <Button size="small" danger loading={purging} onClick={() => void purge()}>
+          清理{filter ? "该插件的" : ""}记录
+        </Button>
+      </Flex>
+
       {rows.error ? <Alert type="error" showIcon message={rows.error.message} /> : null}
       <Table<InvocationRow>
         size="small"

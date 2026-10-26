@@ -20,7 +20,7 @@ import {
 } from "antd";
 import { post } from "../../api";
 import { text, usePoll } from "../lib";
-import type { PluginRow, SchemaField, SecretSlot } from "../types";
+import type { CommandRow, PluginRow, SchemaField, SecretSlot, ServiceInfo } from "../types";
 
 const ROLE_NAME: Record<number, string> = { 1: "群友", 2: "管理员", 3: "群主" };
 
@@ -150,6 +150,7 @@ export default function PluginsPage() {
   return (
     <Flex vertical gap={16}>
       {error ? <Alert type="error" showIcon message={error.message} /> : null}
+      <RuntimePanel />
       <Card size="small" title="插件（点击行展开：命令 / 配置 / 凭据）">
         <Table<PluginRow>
           size="small"
@@ -273,5 +274,108 @@ export default function PluginsPage() {
         />
       </Card>
     </Flex>
+  );
+}
+
+
+/**
+ * 运行时能力与命令。
+ *
+ * 和下面「插件」那张表的区别：这里是**运行时真实注册**的结果
+ * （`/api/services` 来自 `runtime.providers`），而插件表里的 `provides`
+ * 只是插件的**声明**。两者对不上就说明「声明了但没注册成功」。
+ */
+function RuntimePanel() {
+  const services = usePoll<Record<string, ServiceInfo>>("/api/services");
+  const commands = usePoll<CommandRow[]>("/api/commands");
+
+  const serviceRows = Object.entries(services.data ?? {}).map(([name, info]) => ({
+    name,
+    owner: info?.owner ?? null,
+    spec: info?.spec,
+  }));
+
+  return (
+    <Card size="small" title="运行时能力与命令">
+      <Tabs
+        size="small"
+        items={[
+          {
+            key: "services",
+            label: `能力提供者（${serviceRows.length}）`,
+            children: (
+              <Flex vertical gap={8}>
+                {services.error ? <Alert type="error" showIcon message={services.error.message} /> : null}
+                <Table
+                  size="small"
+                  rowKey="name"
+                  loading={!services.data && !services.error}
+                  dataSource={serviceRows}
+                  pagination={false}
+                  locale={{ emptyText: "还没有插件注册能力" }}
+                  columns={[
+                    {
+                      title: "能力",
+                      dataIndex: "name",
+                      render: (v: string) => <Typography.Text code>{v}</Typography.Text>,
+                    },
+                    { title: "提供者", dataIndex: "owner", width: 160, render: (v: unknown) => text(v) },
+                    {
+                      title: "契约",
+                      dataIndex: "spec",
+                      render: (v: unknown) => (
+                        <Typography.Text style={{ fontFamily: "monospace", fontSize: 12 }}>
+                          {text(v, "—")}
+                        </Typography.Text>
+                      ),
+                    },
+                  ]}
+                />
+              </Flex>
+            ),
+          },
+          {
+            key: "commands",
+            label: `命令速查（${(commands.data ?? []).length}）`,
+            children: (
+              <Flex vertical gap={8}>
+                {commands.error ? <Alert type="error" showIcon message={commands.error.message} /> : null}
+                <Table<CommandRow>
+                  size="small"
+                  rowKey={(c) => `${c.plugin}:${c.command}`}
+                  loading={!commands.data && !commands.error}
+                  dataSource={commands.data ?? []}
+                  pagination={{ pageSize: 20, hideOnSinglePage: true }}
+                  locale={{ emptyText: "没有注册任何命令" }}
+                  columns={[
+                    {
+                      title: "命令",
+                      dataIndex: "command",
+                      width: 150,
+                      render: (v: string) => <Typography.Text code>{v}</Typography.Text>,
+                    },
+                    {
+                      title: "别名",
+                      dataIndex: "aliases",
+                      width: 160,
+                      render: (v: string[]) => (v?.length ? v.join(" / ") : "—"),
+                    },
+                    { title: "用法", dataIndex: "usage", width: 200, render: (v: unknown) => text(v, "—") },
+                    { title: "说明", dataIndex: "description", render: (v: unknown) => text(v, "—") },
+                    {
+                      title: "权限",
+                      dataIndex: "min_role",
+                      width: 90,
+                      render: (v: number) => ROLE_NAME[v] ?? "群友",
+                    },
+                    { title: "插件", dataIndex: "plugin", width: 110 },
+                  ]}
+                />
+              </Flex>
+            ),
+          },
+        ]}
+      />
+    </Card>
   );
 }
