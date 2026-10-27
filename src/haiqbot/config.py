@@ -12,7 +12,7 @@ import tomllib
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from haiqbot.core.errors import ConfigError
 from haiqbot.kernel.log import get_logger
@@ -43,13 +43,15 @@ class PolicyCfg(BaseModel):
 
 
 class MediaCfg(BaseModel):
-    dir: Path = Path("data/media")
+    # None = 跟随 data_dir（`<data_dir>/media`）；显式写就按写的来。
+    dir: Path | None = None
     ttl_seconds: int = 86400
     gc_interval_seconds: int = 600
     # 只读媒体服务：给协议端（可能跑在容器里）一个能拉到图片的地址。
     # 只暴露 `/i/<id>`，不暴露面板；serve_port=0 表示关闭。
     serve_host: str = "0.0.0.0"
-    serve_port: int = 8090
+    # 默认**关闭**：不写 [media] 段时不得把 /i/<id> 暴露到 0.0.0.0。
+    serve_port: int = 0
     # 对外可访问的基地址（反代域名）。为空则用 webui 的内网地址。
     public_base_url: str | None = None
 
@@ -147,7 +149,8 @@ class HaiqConfig(BaseModel):
     data_dir: Path = Path("data")
     log_level: str = "INFO"
     log_json: bool = False
-    db_path: Path = Path("data/haiq.db")
+    # None = 跟随 data_dir（`<data_dir>/haiq.db`）；显式写就按写的来。
+    db_path: Path | None = None
 
     # 内核不认识任何具体插件：默认一个都不启用，由 haiq.toml 显式列出。
     plugins_enabled: list[str] = Field(default_factory=list)
@@ -171,6 +174,21 @@ class HaiqConfig(BaseModel):
     # 配置文件落盘位置（由 load_config 填入，供面板持久化用）。
     # 不写进 haiq.toml，只是内存里的一个指针。
     config_path: Path | None = None
+
+    @model_validator(mode="after")
+    def _derive_data_paths(self) -> HaiqConfig:
+        """`data_dir` 是根：`db_path` / `media.dir` 没显式写就跟它走。
+
+        老版本三个字段各带各的默认值（`data/haiq.db`、`data/media`），
+        于是「改 data_dir」等于没改 —— 实测把 data_dir 指到临时目录后，
+        数据库仍然落在当前工作目录的 `data/haiq.db`。
+        """
+        data = Path(self.data_dir)
+        if self.db_path is None:
+            self.db_path = data / "haiq.db"
+        if self.media.dir is None:
+            self.media.dir = data / "media"
+        return self
 
 
 def _env_override(raw: dict[str, Any]) -> dict[str, Any]:

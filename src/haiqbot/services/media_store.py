@@ -49,7 +49,9 @@ class MediaStore:
     ) -> None:
         self.store = store
         self.cfg = cfg
-        self.dir = Path(cfg.dir)
+        # cfg.dir 为 None 只可能来自「裸 MediaCfg()」（没经过 HaiqConfig 派生路径），
+        # 这时退回老默认值，避免 None 直接进 Path()。
+        self.dir = Path(cfg.dir or "data/media")
         self.dir.mkdir(parents=True, exist_ok=True)
         self._webui = webui or WebuiCfg()
 

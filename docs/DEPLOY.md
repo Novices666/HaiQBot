@@ -385,11 +385,19 @@ OneBot 路线两个已知坑，都已在代码里修掉，若从旧版本升级�
 ```toml
 [media]
 public_base_url = "https://你的公网域名"   # 公网可达
-serve_port = 8090                          # 只读媒体服务，0 = 关闭
+serve_port = 8090                          # 只读媒体服务，默认 0（关闭）
 ```
 
 `serve_port` 起的是一个**只暴露 `/i/<id>` 和 `/healthz`** 的小服务（不含面板）；
 面板本身始终只绑 `127.0.0.1`。
+
+**默认是关的**：不写 `[media]` 段时 `serve_port = 0`，`/i/<id>` 不监听任何端口。
+（`serve_host` 默认 `0.0.0.0`，一旦开了端口就是全网可达 —— 所以默认必须是关，
+确实要发公网 URL 时才手动开。）
+
+**路径只认一个根**：`db_path` 和 `media.dir` 不写就跟着 `data_dir` 走
+（`<data_dir>/haiq.db`、`<data_dir>/media`）。搬数据只改 `data_dir` 一处即可；
+显式写了 `db_path` 或 `[media] dir` 的，以写的为准。
 
 ## 频道开关体检
 

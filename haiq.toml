@@ -36,13 +36,16 @@ owners = []
 admins = []
 
 [media]
+# 路径默认跟着 data_dir 走（<data_dir>/media），这行可以整行删掉；
+# 显式写了才按写的来（搬数据只改 data_dir 一处最省事）。
 dir = "data/media"
 ttl_seconds = 86400
 # 公网反代基地址，例如 "https://bot.example.com"
 # public_base_url 留空：协议端能直连本机，图片走 base64 内嵌最稳。
 # 只有将来要「公网 URL」发图时才需要填一个公网可达地址。
 public_base_url = ""
-# 只读媒体服务：0 = 关闭。仅「公网 URL」方案需要（要别的机器能拉图）。
+# 只读媒体服务：默认 0 = 关闭（serve_host 默认 0.0.0.0，开了就是全网可达）。
+# 仅「公网 URL」方案需要（要别的机器能拉图）。
 serve_port = 0
 
 [webui]
