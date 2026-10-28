@@ -1,8 +1,14 @@
 # haiqbot 运行时镜像
-#
 # 只打包框架本身：内核 + 框架自带插件（plugins/）+ 你自己的插件（plugins-extra/）。
 # 协议端（NapCat / Lagrange / LLOneBot …）不在这里，也不会在这里 —— 见 docs/DEPLOY.md。
-FROM python:3.12-slim AS base
+#
+# 大陆网络三个开关（默认值 = 原样不动，不影响其它地区）：
+#   BASE_IMAGE    换 Docker Hub 加速器，例如 docker.m.daocloud.io/library/python:3.12-slim
+#   APT_MIRROR    只换主机名（保留 /debian 与 /debian-security 路径），例如 mirrors.aliyun.com
+#   UV_INDEX_URL  PyPI 镜像；给了它就**不用** astral.sh 装 uv，改为 pip 从镜像装
+# 用法见 compose.cn.yaml；不传这些参数时，构建行为与本文件之前完全一致。
+ARG BASE_IMAGE=python:3.12-slim
+FROM ${BASE_IMAGE} AS base
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -10,10 +16,35 @@ ENV PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
     HAIQ_DATA_DIR=/data
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl -LsSf https://astral.sh/uv/install.sh | sh \
-    && ln -s /root/.local/bin/uv /usr/local/bin/uv
+ARG APT_MIRROR=""
+ARG PIP_INDEX_URL=""
+ARG UV_INDEX_URL=""
+# uv 认 UV_DEFAULT_INDEX（新名）与 UV_INDEX_URL（旧名），两个都设，省得被版本差异坑
+ENV UV_INDEX_URL=${UV_INDEX_URL} \
+    UV_DEFAULT_INDEX=${UV_INDEX_URL}
+
+RUN set -eux; \
+    if [ -n "$APT_MIRROR" ]; then \
+        for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
+            if [ -f "$f" ]; then \
+                sed -i \
+                    -e "s|//deb.debian.org|//${APT_MIRROR}|g" \
+                    -e "s|//security.debian.org|//${APT_MIRROR}|g" "$f"; \
+            fi; \
+        done; \
+    fi; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends curl ca-certificates; \
+    rm -rf /var/lib/apt/lists/*
+
+# 官方安装脚本走 astral.sh（大陆常被拖慢/卡住）；给了 PyPI 镜像就从镜像装 uv
+RUN set -eux; \
+    if [ -n "$PIP_INDEX_URL" ]; then \
+        python -m pip install --no-cache-dir --index-url "$PIP_INDEX_URL" uv; \
+    else \
+        curl -LsSf https://astral.sh/uv/install.sh | sh; \
+        ln -s /root/.local/bin/uv /usr/local/bin/uv; \
+    fi
 
 WORKDIR /app
 

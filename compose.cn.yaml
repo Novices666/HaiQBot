@@ -1,0 +1,81 @@
+# compose.cn.yaml —— 大陆网络版
+#
+# 与 compose.yaml 唯一的区别：**构建镜像时走国内镜像源**（基础镜像 / Debian 源 / PyPI）。
+# 运行期的行为、挂载、端口与 compose.yaml 完全一致。
+#
+#   docker compose -f compose.cn.yaml up -d --build
+#   docker compose -f compose.cn.yaml logs -f haiqbot
+#   docker compose -f compose.cn.yaml exec haiqbot haiq doctor
+#
+# 为什么需要它（三个卡点，逐个对号）：
+#   1) FROM python:3.12-slim        → Docker Hub 在大陆经常拉不动
+#   2) 安装 curl 走 deb.debian.org  → 慢到超时
+#   3) 装 uv 走 astral.sh + PyPI    → 常常直接卡死
+#
+# 三个都可以用环境变量覆盖（不改文件）：
+#   HAIQ_BASE_IMAGE   基础镜像（换成你自己的阿里云/腾讯云加速地址）
+#   HAIQ_APT_MIRROR   Debian 源主机名（只换 host，路径不变）
+#   HAIQ_PYPI_INDEX   PyPI 镜像（uv 也从这里装）
+#
+# 例：
+#   HAIQ_BASE_IMAGE=registry.cn-hangzhou.aliyuncs.com/<你的命名空间>/python:3.12-slim \
+#   HAIQ_APT_MIRROR=mirrors.tuna.tsinghua.edu.cn \
+#   docker compose -f compose.cn.yaml up -d --build
+#
+# 首次使用（同 compose.yaml，两条命令让两个容器能互相看见）：
+#   docker network create haiqbot_net
+#   docker network connect haiqbot_net <你的协议端容器名>
+# 只用官方平台、完全不要协议端时：把文件末尾 networks 那一整段删掉。
+#
+# 注意：镜像源只影响**构建**。容器运行时不访问这些站点，出站只连你自己的
+# 协议端和模型网关 —— 所以镜像内不需要配置任何代理。
+
+services:
+  haiqbot:
+    build:
+      context: .
+      args:
+        # 1) 基础镜像：走公开镜像站（实测 dockerproxy.net 可直接拉 library/python:3.12-slim）
+        #    镜像站会停/会改成要鉴权（daocloud 现在 401、1panel 与 nju 403），所以：
+        #      - 拉不动就换一个，用 HAIQ_BASE_IMAGE 覆盖，不用改文件；
+        #      - 或者更彻底：在 /etc/docker/daemon.json 里配 registry-mirrors（全局生效），
+        #        然后 HAIQ_BASE_IMAGE=python:3.12-slim 即可；
+        #      - 阿里云「容器镜像服务 → 镜像加速器」的个人地址也能用（需先把
+        #        library/python 拉一份到自己的命名空间下）。
+        BASE_IMAGE: ${HAIQ_BASE_IMAGE:-dockerproxy.net/library/python:3.12-slim}
+        # 2) Debian apt 源：只换主机名，保留官方路径（/debian、/debian-security）
+        APT_MIRROR: ${HAIQ_APT_MIRROR:-mirrors.aliyun.com}
+        # 3) PyPI 镜像：uv 本体与项目依赖都从这里装（不再访问 astral.sh）
+        PIP_INDEX_URL: ${HAIQ_PYPI_INDEX:-https://mirrors.aliyun.com/pypi/simple}
+        UV_INDEX_URL: ${HAIQ_PYPI_INDEX:-https://mirrors.aliyun.com/pypi/simple}
+    image: haiqbot:local
+    container_name: haiqbot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      HAIQ_DATA_DIR: /data
+      HAIQ_SECRETS_DIR: /secrets
+      PYTHONUNBUFFERED: "1"
+      TZ: Asia/Shanghai
+    volumes:
+      # 状态：SQLite / 媒体库 / 插件参数。属主必须是容器里的 uid 10001。
+      - ./data:/data
+      # 凭据：vault.json（口令在 .env，不在这里）
+      - ./secrets:/secrets
+      # 插件挂进来即可热替换，不必重建镜像
+      - ./plugins:/app/plugins
+      - ./plugins-extra:/app/plugins-extra
+      # 配置：容器版（本机开发用 haiq.toml，两者互不影响）。
+      # 不能加 :ro —— 面板「配置中心」保存时直接写这个文件；
+      # 也不能让它只能 root 写：容器是 uid 10001，见 docs/DEPLOY.md C.4。
+      - ./haiq.docker.toml:/app/haiq.toml
+    ports:
+      # 仅本机；公网只反代 /i/*
+      - "127.0.0.1:8080:8080"
+
+networks:
+  # 和协议端共用一张网，才能用容器名互相访问
+  default:
+    name: haiqbot_net
+    external: true

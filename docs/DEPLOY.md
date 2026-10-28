@@ -163,6 +163,47 @@ docker network connect haiqbot_net <你的协议端容器名>
 `compose.yaml` 末尾把 `haiqbot_net` 声明为 `external: true`，所以这张网必须先存在。
 只用官方平台、不要协议端的话，把 `networks:` 那一段删掉即可。
 
+### C.1.1 大陆网络：用 `compose.cn.yaml`
+
+构建镜像时要访问三处外部站点，在大陆都可能卡住：
+
+| 卡点 | 默认行为 | `compose.cn.yaml` 里改成 |
+|---|---|---|
+| 基础镜像 | Docker Hub `python:3.12-slim` | `dockerproxy.net/library/python:3.12-slim` |
+| 装 curl | `deb.debian.org` | `mirrors.aliyun.com`（只换主机名，路径不变） |
+| 装 uv + 项目依赖 | `astral.sh` 脚本 + PyPI | pip 从 `mirrors.aliyun.com/pypi/simple` 装 uv，`uv sync` 也走它 |
+
+用法与 `compose.yaml` 完全一样，只是多一个 `-f`：
+
+```bash
+docker compose -f compose.cn.yaml up -d --build
+docker compose -f compose.cn.yaml logs -f haiqbot
+docker compose -f compose.cn.yaml exec haiqbot haiq doctor
+```
+
+三个源都能用环境变量覆盖，不必改文件：
+
+```bash
+HAIQ_BASE_IMAGE=python:3.12-slim \
+HAIQ_APT_MIRROR=mirrors.tuna.tsinghua.edu.cn \
+HAIQ_PYPI_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple \
+docker compose -f compose.cn.yaml up -d --build
+```
+
+镜像站会停、会改成要鉴权（实测：`docker.m.daocloud.io` 现在 401，`docker.1panel.live`
+与 `docker.nju.edu.cn` 403，`dockerproxy.net` 可用）。更彻底的办法是在
+`/etc/docker/daemon.json` 里配 `registry-mirrors` 让**所有**镜像拉取都走加速，
+然后 `HAIQ_BASE_IMAGE=python:3.12-slim` 即可 —— 这样换站只改一处。
+
+两个提醒：
+
+- 镜像源只影响**构建**。容器运行时不访问这些站点，只连你的协议端和模型网关，
+  所以容器内不需要任何代理配置。
+- `docker compose config` 会把 `.env` 的值**明文打印**出来（包括
+  `HAIQ_VAULT_PASSPHRASE`）。调试 compose 语法时别在共享屏幕/群里跑，或者先把
+  `env_file` 那行注释掉。
+
+
 ### C.2 连你自己的协议端
 
 框架不认识任何具体实现，只认这四条：
