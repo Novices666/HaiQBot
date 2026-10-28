@@ -398,6 +398,28 @@ public_base_url = "https://bot.example.com"
 （横跨所有重试的总时限，必须小于 180），到点会明确回一句「对话超时」。
 从旧版升级的话，要么升上来，要么自己把 `chat_timeout_seconds` 调到 25 左右。
 
+**Q: 日志一直刷 `llm_retry`，对话和生图都不工作？**
+先在容器里看一眼代理变量：
+
+```bash
+docker exec haiqbot env | grep -i proxy
+```
+
+如果看到 `HTTP_PROXY=http://127.0.0.1:端口` 这类**指向本机**的值，就是它：
+容器里的 `127.0.0.1` 是**容器自己**，不是宿主机上的 Clash —— 每个请求都连到死端口，
+于是 `llm_retry ... ConnectError` 刷满日志，对话/生图全挂（实测 0/8 成功）。
+来源通常是 `~/.docker/config.json` 的 `proxies`，或宿主机
+`/etc/systemd/system/docker.service.d/http-proxy.conf`；只给**构建**用代理的话，
+用完就删掉，别留在 daemon/客户端配置里。确需容器走代理就写
+`http://host.docker.internal:端口` 并给 compose 加 `extra_hosts`。
+`haiq doctor` 现在会把这个组合直接报成**错误**并给出修法，不会再只给一句警告。
+
+**Q: 数据在容器里重建后没了？**
+镜像里把 `HAIQ_DATA_DIR` 定成了 `/data`。裸 `docker run` 忘了挂卷时，
+数据库/媒体/插件参数都落在容器可写层 —— 容器一删就没，而界面上看不出异常。
+`haiq doctor` 现在会打印实际生效的 `数据目录：`，跑一次确认它指向卷内路径
+（compose 里是 `/data`，对应宿主 `./data`）。
+
 **Q: `/画图` 之后很久没动静，或者审计里看到 `assistant` 的相关失败？**
 OneBot 路线两个已知坑，都已在代码里修掉，若从旧版本升级请确认没跑着旧进程：
 1. **事件死锁** —— 收包循环 inline await 事件处理，处理里又要 `send_group_msg` 等回包，

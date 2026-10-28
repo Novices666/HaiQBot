@@ -148,6 +148,15 @@ def _doctor_plugin_endpoints(cfg: object) -> int:
     return warnings
 
 
+def _in_container() -> bool:
+    """是否跑在容器里（Docker / Podman 都有标记文件）。
+
+    单独抽出来是为了测试能替身 —— 「代理指向 127.0.0.1」是不是致命，
+    完全取决于在不在容器里：宿主机上那是正常的 Clash，容器里那是死路。
+    """
+    return Path("/.dockerenv").exists() or Path("/run/.containerenv").exists()
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     """环境自检。退出码：0 = 全绿 / 1 = 有警告 / 2 = 有错误。"""
     cfg = load_config(args.config)
@@ -179,6 +188,11 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     elif not os.access(resolved_cfg.parent, os.W_OK):
         print(f"警告：配置目录不可写：{resolved_cfg.parent}")
         warnings += 1
+
+    # 数据目录：镜像里把 HAIQ_DATA_DIR 定成了 /data，裸 docker run 忘了挂卷时
+    # 数据会落在容器可写层 —— 重建即丢，而界面上看不出任何异常。打出来便于核对。
+    data_dir = Path(str(getattr(cfg, "data_dir", "data"))).expanduser().resolve()
+    print(f"数据目录：{data_dir}{'' if data_dir.exists() else '（还不存在，首次运行会创建）'}")
 
     # 依赖
     for name in ("httpx", "structlog", "aiosqlite", "starlette", "uvicorn", "websockets"):
@@ -316,25 +330,39 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             print("警告：OneBot HTTP 上报监听非本机地址，且没有 token / webhook_secret_ref")
             warnings += 1
 
-    # 系统代理
+    # 系统代理：容器里如果代理指向 127.0.0.1，那是在指**容器自己** —— 出站必失败
     try:
         import urllib.request
 
         proxies = urllib.request.getproxies()
     except Exception:  # noqa: BLE001
         proxies = {}
-    if proxies:
-        without_bypass = {k: v for k, v in proxies.items() if k != "no"}
-        if without_bypass:
-            print(f"警告：检测到系统代理 {without_bypass}；本地 http://127.0.0.1 请求可能被代理拦截")
-            print("      验证 /i/* 时请用 trust_env=False 的客户端，或把 127.0.0.1 加入代理例外")
-            print("      更要紧：协议端（尤其跑在容器里的）媒体上传也会被代理劫走，")
-            print("              表现为「文字正常、发图失败」（rich media transfer failed）——先关代理再排障")
-            warnings += 1
-        if "no" in proxies:
-            print(f"    代理例外(no_proxy): {proxies['no']}")
+    in_container = _in_container()
+    upstream = {k: v for k, v in proxies.items() if k != "no"}
+    loopback = {k: v for k, v in upstream.items() if "127.0.0.1" in str(v) or "localhost" in str(v)}
+    if upstream and loopback and in_container:
+        # 真机上踩过：Docker 把宿主机的代理配置注入容器，于是 httpx 拿
+        # HTTP_PROXY=http://127.0.0.1:10808 去连容器自己 —— 对话/生图全部
+        # ConnectError，日志里刷满 llm_retry。这不是"偶发抖动"，是必失败。
+        print(f"错误：容器内检测到指向本机的代理 {loopback}")
+        print("      容器里的 127.0.0.1 是它自己，不是宿主机，也不是你的 Clash ——")
+        print("      所有出站请求（对话 / 生图）都会连到死端口，日志里刷 llm_retry ConnectError")
+        print("      修法：别把代理注入容器。清理 docker 客户端配置里的 proxies，")
+        print("            或宿主机 systemd 的 docker.service.d/http-proxy.conf")
+        print("            （只在构建时用代理的话，构建完就删，别留在 daemon/客户端配置里）")
+        print("      确需容器走代理：写成 http://host.docker.internal:端口，")
+        print("            并给 compose 加 extra_hosts: ['host.docker.internal:host-gateway']")
+        errors += 1
+    elif upstream:
+        print(f"警告：检测到系统代理 {upstream}；本地 http://127.0.0.1 请求可能被代理拦截")
+        print("      验证 /i/* 时请用 trust_env=False 的客户端，或把 127.0.0.1 加入代理例外")
+        print("      更要紧：协议端（尤其跑在容器里的）媒体上传也会被代理劫走，")
+        print("              表现为「文字正常、发图失败」（rich media transfer failed）——先关代理再排障")
+        warnings += 1
     else:
         print("系统代理：未设置 OK")
+    if "no" in proxies:
+        print(f"    代理例外(no_proxy): {proxies['no']}")
 
     # 插件来源（内核里不带任何插件：全靠 entry point 或 plugin_dirs）
     try:
@@ -429,7 +457,13 @@ def _remote_control(cfg, path: str, body: dict | None = None) -> tuple[int, dict
     """向**运行中**的实例发一个写请求。
 
     返回 (状态码, 响应体)；连不上（没有实例在跑）返回 None。
-    必须显式禁用代理：系统代理会把 127.0.0.1 也劫走，导致本地请求 502。
+
+    写操作要三样东西：会话 Cookie + CSRF + 非 GET。只发一个
+    `Authorization: Bearer` 是**不认**的（那是面板令牌，用来换会话的），
+    以前这里就卡在这上面：实例在跑时 `haiq plugin enable` 永远回 unauthorized，
+    而且因为这个"错误响应"不是"连不上"，也不会回落到离线路径 —— 等于 CLI 完全不可用。
+
+    另外必须显式禁用代理：系统代理会把 127.0.0.1 也劫走，导致本地请求 502。
     """
     import urllib.error
     import urllib.request
@@ -438,16 +472,45 @@ def _remote_control(cfg, path: str, body: dict | None = None) -> tuple[int, dict
 
     vault = Vault.from_config(cfg)
     token = (vault.get(cfg.webui.token_ref) if cfg.webui.token_ref else None) or ""
-    url = f"http://{cfg.webui.host}:{cfg.webui.port}{path}"
+    if not token:
+        return None
+    base = f"http://{cfg.webui.host}:{cfg.webui.port}"
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    # 第一步：用面板令牌换会话 Cookie + CSRF
+    login = urllib.request.Request(
+        f"{base}/api/auth/login",
+        data=json.dumps({"token": token}).encode("utf-8"),
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with opener.open(login, timeout=5) as resp:
+            payload = json.loads(resp.read() or b"{}")
+            raw_cookie = resp.headers.get("set-cookie") or ""
+    except urllib.error.HTTPError as exc:
+        return exc.code, {"error": f"面板令牌不可用（HTTP {exc.code}）"}
+    except (urllib.error.URLError, OSError):
+        return None
+
+    csrf = str((payload.get("data") or {}).get("csrf") or "")
+    cookie = raw_cookie.split(";")[0].strip()
+    if not csrf or not cookie:
+        return 401, {"error": "登录没拿到会话/CSRF，面板地址可能不是 haiqbot"}
+
+    # 第二步：带会话 + CSRF 发写请求
     req = urllib.request.Request(
-        url,
+        f"{base}{path}",
         data=json.dumps(body or {}).encode("utf-8"),
         method="POST",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+        headers={
+            "Content-Type": "application/json",
+            "X-Haiq-CSRF": csrf,
+            "Cookie": cookie,
+        },
     )
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
-        with opener.open(req, timeout=5) as resp:
+        with opener.open(req, timeout=10) as resp:
             return resp.status, json.loads(resp.read() or b"{}")
     except urllib.error.HTTPError as exc:
         try:
@@ -761,13 +824,24 @@ def _cmd_plugin(args: argparse.Namespace) -> int:
         return 1
 
     # 优先交给运行中的实例 —— 只有它握着真正的总线与插件实例
-    remote = _remote_control(cfg, f"/api/plugin/{args.id}/{args.action}")
+    remote = _remote_control(cfg, f"/api/plugins/{args.id}/{args.action}")
     if remote is not None:
         status, payload = remote
         if status == 200:
-            print(f"✅ {args.id}：{payload.get('note') or payload}")
+            # 面板回的是信封 {ok, data:{note,...}}，别把整包 dict 打到屏幕上
+            data = payload.get("data")
+            note = data.get("note") if isinstance(data, dict) else None
+            print(f"✅ {args.id}：{note or '完成'}")
             return 0
-        print(f"× {args.id}：{payload.get('error') or f'HTTP {status}'}")
+        # 错误信封是 {ok:false, error:{code,message}}；直接 str(dict) 会打出一坨
+        err = payload.get("error")
+        reason = err.get("message") if isinstance(err, dict) else (err or "")
+        if status in {401, 403, 404}:
+            # 认证/路径层面的问题不该把 CLI 卡死：退回离线改配置，并说明"重启才生效"
+            print(f"· 面板拒绝了这个请求（HTTP {status}）：{reason}")
+            print("  改为离线写配置（运行中的实例不会热加载，需重启 haiq run 生效）")
+            return _plugin_offline(cfg, args)
+        print(f"× {args.id}：{reason or f'HTTP {status}'}")
         return 1
 
     print("· 未检测到运行中的实例，转为离线处理")
