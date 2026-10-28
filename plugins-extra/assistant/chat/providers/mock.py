@@ -22,6 +22,7 @@ class MockChatProvider:
         model: str,
         max_tokens: int,
         temperature: float,
+        deadline: float | None = None,
     ) -> str:
         self.calls.append(list(messages))
         if self.delay:

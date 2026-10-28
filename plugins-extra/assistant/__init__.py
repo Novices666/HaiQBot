@@ -234,7 +234,24 @@ class Assistant(Plugin):
                 "default": 800,
             },
             {"key": "chat_temperature", "label": "温度", "kind": "float", "default": 0.7},
-            {"key": "chat_timeout_seconds", "label": "对话超时(秒)", "kind": "float", "default": 90},
+            {
+                "key": "chat_timeout_seconds",
+                "label": "单次请求超时(秒)",
+                "kind": "float",
+                "default": 90,
+                "description": "一次 HTTP 请求的上限；真正兜底的是下面的「总时限」",
+            },
+            {
+                "key": "chat_budget_seconds",
+                "label": "一次对话总时限(秒)",
+                "kind": "float",
+                "default": 120,
+                "description": (
+                    "横跨所有重试的总预算。必须小于 @我 的 handler 超时（180 秒），"
+                    "否则内核会在半路取消 handler —— 群里连「对话失败」都不会有，"
+                    "表现就是完全没反应"
+                ),
+            },
             {
                 "key": "chat_max_input_chars",
                 "label": "输入上限（字）",
@@ -646,7 +663,9 @@ class Assistant(Plugin):
         if not bool(ctx.config.get("moderate_prompt", True)):
             return False
         try:
-            raw = await ctx.service("llm:chat").chat(moderation.build_check_messages(prompt))
+            # 出图前的这一次审查给个短预算：它只是"再看一眼"，
+            # 不能把「出图」的时间预算吃掉（用户等的是图，不是审查）
+            raw = await ctx.service("llm:chat").chat(moderation.build_check_messages(prompt), budget=20.0)
         except Exception as exc:  # noqa: BLE001
             ctx.log.warning("assistant_prompt_review_failed", error_type=type(exc).__name__)
             return False  # 审查挂了不该挡住正常出图

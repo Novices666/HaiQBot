@@ -350,6 +350,13 @@ public_base_url = "https://bot.example.com"
 另外两个「不回话」的原因不带报错：**频道开关默认全关**（`haiq channels verify` 看一眼），
 以及 `@机器人` 之外的消息本来就不会触发对话。
 
+**Q: 日志里同一个 trace_id 既有 `llm_retry` 又有 `handler_timeout`，群里完全没反应？**
+`chat_timeout_seconds`（单次请求）× `chat_retries+1` 大于 handler 的 180 秒时，
+内核会在半路取消 handler，而 `CancelledError` 不是 `Exception` ——
+连「对话失败」这句话都发不出去。现在默认加了 `chat_budget_seconds = 120`
+（横跨所有重试的总时限，必须小于 180），到点会明确回一句「对话超时」。
+从旧版升级的话，要么升上来，要么自己把 `chat_timeout_seconds` 调到 25 左右。
+
 **Q: `/画图` 之后很久没动静，或者审计里看到 `assistant` 的相关失败？**
 OneBot 路线两个已知坑，都已在代码里修掉，若从旧版本升级请确认没跑着旧进程：
 1. **事件死锁** —— 收包循环 inline await 事件处理，处理里又要 `send_group_msg` 等回包，

@@ -27,6 +27,10 @@ class ChatCfg(BaseModel):
     max_tokens: int = 800
     temperature: float = 0.7
     timeout_seconds: float = 90.0
+    #: 一次对话的**总时限**（秒，含所有重试）。必须明显小于 @我 那个 handler 的
+    #: timeout（180s）：内层不限时的话，内核会在半路把 handler 取消，
+    #: 用户不但收不到回复，连「对话失败」这一句都收不到 —— 看起来就是「完全没反应」。
+    budget_seconds: float = 120.0
     max_input_chars: int = 2000
     # 多轮上下文：保留最近 N 轮（user+assistant 各算一条）
     history_turns: int = 6

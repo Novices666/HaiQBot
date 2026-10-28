@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from pathlib import Path
 
 import httpx
@@ -268,3 +269,104 @@ async def test_chat_reset_clears_history(chat_cfg: HaiqConfig) -> None:
         assert "记住这个" not in contents, "重置后不应再带旧历史"
     finally:
         await app.shutdown()
+
+
+# --------------------------------------------------------------------------- #
+# 总时限（budget）：不能让「单次超时 × 重试次数」把 handler 拖到被内核取消
+#   真机事故（2026-10-28）：chat_timeout 90s × 5 次尝试 > handler 180s，
+#   内核把 handler 取消，而 CancelledError 不是 Exception —— 连「对话失败」
+#   都发不出去，群里表现就是「完全没反应」。
+# --------------------------------------------------------------------------- #
+async def test_broker_budget_becomes_provider_error() -> None:
+    class _Slow:
+        name = "slow"
+
+        async def complete(self, messages, *, model, max_tokens, temperature, deadline=None):
+            await asyncio.sleep(5)
+            return "never"
+
+    broker = LLMBroker(_Slow(), model="m")
+    broker.budget_seconds = 0.05
+
+    t0 = time.monotonic()
+    with pytest.raises(ProviderError) as info:
+        await broker.chat("hi")
+    elapsed = time.monotonic() - t0
+
+    assert elapsed < 1.0, "预算到了就必须立刻失败，不能继续等"
+    assert "超时" in str(info.value)
+
+
+async def test_provider_splits_budget_across_attempts(tmp_path: Path) -> None:
+    """剩余时间要摊到剩余尝试上 —— 否则第一次就把 90s 用光。"""
+    timeouts: list[float | None] = []
+
+    class _Client:
+        async def post(self, url, *, json=None, headers=None, timeout=None):
+            timeouts.append(timeout)
+            return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    cfg = ChatCfg(base_url="https://api.example.com/v1", timeout_seconds=90, retries=2)
+    provider = OpenAICompatChatProvider(_auth(_vault(tmp_path)), cfg, client=_Client())
+
+    text = await provider.complete(
+        [{"role": "user", "content": "hi"}],
+        model="m1",
+        max_tokens=10,
+        temperature=0.1,
+        deadline=time.monotonic() + 9.0,
+    )
+
+    assert text == "ok"
+    assert len(timeouts) == 1
+    assert timeouts[0] is not None
+    # attempts = retries + 1 = 3 → 9s / 3 = 3s
+    assert 2.5 <= float(timeouts[0]) <= 3.0
+
+
+async def test_provider_fails_fast_when_budget_already_gone(tmp_path: Path) -> None:
+    sent: list[float | None] = []
+
+    class _Client:
+        async def post(self, url, *, json=None, headers=None, timeout=None):
+            sent.append(timeout)
+            return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    cfg = ChatCfg(base_url="https://api.example.com/v1", timeout_seconds=90, retries=4)
+    provider = OpenAICompatChatProvider(_auth(_vault(tmp_path)), cfg, client=_Client())
+
+    with pytest.raises(ProviderError) as info:
+        await provider.complete(
+            [{"role": "user", "content": "hi"}],
+            model="m1",
+            max_tokens=10,
+            temperature=0.1,
+            deadline=time.monotonic() - 1,
+        )
+
+    assert "超时" in str(info.value)
+    assert sent == [], "预算已用尽时不该再发请求"
+
+
+async def test_chat_service_takes_budget_from_config() -> None:
+    """`chat_budget_seconds` 必须真的传到 broker 上（否则配了也白配）。"""
+    from haiqbot.kernel.plugin import ProviderContext
+    from haiqbot.kernel.plugin_sources import load_local_module
+
+    # 插件是按 `haiqbot_local_<id>` 动态注册的：别的测试会把它从 sys.modules 里
+    # 挤掉再重载，所以这里显式按目录加载一次，别依赖进程里残留的模块对象。
+    plugin_dir = Path(__file__).resolve().parent.parent / "plugins-extra" / "assistant"
+    mod = load_local_module("assistant", plugin_dir)
+
+    pctx = ProviderContext(
+        plugin_id="assistant",
+        config={"chat_provider": "mock", "chat_budget_seconds": 42},
+    )
+    service = mod.chat.build_service(pctx)
+    assert service.budget_seconds == 42
+
+
+async def test_default_budget_stays_below_handler_timeout() -> None:
+    """默认总时限必须小于 180s 的 handler 超时，否则失败时群里一句话都没有。"""
+    cfg = ChatCfg()
+    assert 0 < cfg.budget_seconds < 180

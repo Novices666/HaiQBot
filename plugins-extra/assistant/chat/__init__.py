@@ -49,5 +49,8 @@ def build_service(pctx: ProviderContext) -> Any:
         temperature=cfg.temperature,
     )
     broker.max_input_chars = cfg.max_input_chars
+    # 总时限：横跨所有重试。没有它，「单次 90s × 5 次」会把 handler 拖到被内核取消，
+    # 群里就一句话都收不到（2026-10-28 真机就是这么「完全没反应」的）。
+    broker.budget_seconds = cfg.budget_seconds
     broker.system_extra = SENDER_PREFIX_NOTE
     return broker

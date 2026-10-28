@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -58,6 +59,23 @@ class OpenAICompatChatProvider:
             await self._client.aclose()
             self._client = None
 
+    def attempt_timeout(self, attempt: int, attempts: int, deadline: float | None) -> float | None:
+        """把总预算摊到**剩余**尝试上（deadline 是 `time.monotonic()` 的绝对时刻）。
+
+        没有 deadline 就退回配置里的单次超时。有 deadline 时取「剩余时间 / 剩余次数」，
+        并且不超过单次超时 —— 否则「5 次尝试 × 90 秒」会把外层 handler 拖到被内核取消，
+        用户不但收不到回复，连一句「失败了」都收不到。
+
+        返回 <= 0 表示预算已用尽，调用方应直接失败，不要再发请求。
+        """
+        if deadline is None:
+            return self.timeout
+        remaining = deadline - time.monotonic()
+        if remaining <= 1.0:
+            return 0.0
+        left = max(1, attempts - attempt)
+        return max(2.0, min(self.timeout, remaining / left))
+
     async def complete(
         self,
         messages: list[dict[str, str]],
@@ -65,6 +83,7 @@ class OpenAICompatChatProvider:
         model: str,
         max_tokens: int,
         temperature: float,
+        deadline: float | None = None,
     ) -> str:
         url = self.cfg.base_url.rstrip("/") + "/chat/completions"
         payload = {
@@ -79,8 +98,12 @@ class OpenAICompatChatProvider:
         last_status: int | None = None
         for attempt in range(attempts):
             is_last = attempt == attempts - 1
+            timeout = self.attempt_timeout(attempt, attempts, deadline)
+            if timeout is not None and timeout <= 0:
+                # 预算是硬的：宁可立刻报超时，也不要在群里静默等到被取消
+                raise ProviderError("对话超时（重试预算已用尽）")
             try:
-                resp = await self._http().post(url, json=payload, headers=headers)
+                resp = await self._http().post(url, json=payload, headers=headers, timeout=timeout)
             except Exception as exc:  # noqa: BLE001 - 网络异常可能带 URL
                 if is_last:
                     raise ProviderError(f"对话请求失败：{type(exc).__name__}") from exc
