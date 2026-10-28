@@ -188,6 +188,11 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     ]
 
     for ref, label, required in targets:
+        if not ref:
+            # 空 ref 不是「漏配」，而是「这一条不用鉴权」：协议端没设 token 时就是这么配的。
+            # 把它报成「缺失（必需）」会把人引向错误方向（去 vault 里找一个不该存在的键）。
+            print(f"凭据 {label}：未配置（这一条不使用鉴权）")
+            continue
         try:
             resolved = vault.resolve(ref)
         except VaultError as exc:
@@ -201,6 +206,19 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             errors += 1
         else:
             print(f"凭据 {label}（{ref}）：未设置（可选）")
+
+    # 空 ref 的后果按用途分开算：出站不带 token 只是「不鉴权」，
+    # 入站不收 token 则是「任何人都能推事件」——后者必须提醒。
+    if cfg.official.enabled and not cfg.official.app_secret_ref:
+        print("凭据 官方 AppSecret：官方平台已启用却没配 app_secret_ref（必需）")
+        errors += 1
+    if cfg.webui.write_enabled and not cfg.webui.token_ref:
+        print("凭据 面板写操作令牌：没配 token_ref，面板无法登录（必需）")
+        errors += 1
+    if cfg.onebot.enabled and not cfg.onebot.access_token_ref:
+        if cfg.onebot.mode in {"server", "http"}:
+            print("警告：OneBot 入站模式没有 access_token_ref —— 任何人都能推事件进来")
+            warnings += 1
 
     # 平台
     print(

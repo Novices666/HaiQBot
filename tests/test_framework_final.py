@@ -6,7 +6,7 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from haiqbot.config import HaiqConfig, VaultCfg, WebuiCfg
+from haiqbot.config import HaiqConfig, OneBotCfg, VaultCfg, WebuiCfg
 from haiqbot.kernel.plugin import SecretHandle, SecretSlot
 from haiqbot.kernel.vault import PlainFileBackend, Vault
 
@@ -81,6 +81,52 @@ def test_doctor_returns_0_or_1_when_secrets_present(tmp_path: Path, monkeypatch,
     assert "结果" in out
     # 没错误；可能有系统代理警告，所以 0 或 1
     assert code in (0, 1)
+
+
+def _cfg_without_onebot_token(tmp_path: Path, *, mode: str) -> HaiqConfig:
+    return HaiqConfig(
+        data_dir=tmp_path / "data",
+        db_path=tmp_path / "data" / "haiq.db",
+        secrets_dir=tmp_path / "secrets",
+        vault=VaultCfg(enc="none"),
+        webui=WebuiCfg(enabled=False, write_enabled=False),
+        onebot=OneBotCfg(enabled=True, mode=mode, access_token_ref="", host="0.0.0.0"),
+    )
+
+
+def test_doctor_does_not_call_an_empty_ref_missing(tmp_path: Path, monkeypatch, capsys) -> None:
+    """空 ref = 这一条不使用鉴权，不是「漏配」。
+
+    协议端本来没设 token 时就会把 access_token_ref 留空；此时报「缺失（必需）」
+    会让人去 vault 里找一个**不该存在**的键 —— 那是误导，不是发现。
+    """
+    cfg = _cfg_without_onebot_token(tmp_path, mode="client")
+    vault = Vault.from_config(cfg)
+    for ref in ("HAIQ_IMAGE_API_KEY", "HAIQ_CHAT_API_KEY"):
+        vault.set(ref, "v")
+    monkeypatch.setattr("haiqbot.cli.load_config", lambda _p: cfg)
+
+    code = _doctor(None)
+    out = capsys.readouterr().out
+
+    assert "OneBot access_token：未配置（这一条不使用鉴权）" in out
+    assert "OneBot access_token（" not in out, "空 ref 不该再报成缺失"
+    assert code in (0, 1)
+
+
+def test_doctor_warns_when_inbound_mode_has_no_token(tmp_path: Path, monkeypatch, capsys) -> None:
+    """入站模式（server / http）不收 token = 任何人都能推事件进来。"""
+    cfg = _cfg_without_onebot_token(tmp_path, mode="http")
+    vault = Vault.from_config(cfg)
+    for ref in ("HAIQ_IMAGE_API_KEY", "HAIQ_CHAT_API_KEY"):
+        vault.set(ref, "v")
+    monkeypatch.setattr("haiqbot.cli.load_config", lambda _p: cfg)
+
+    code = _doctor(None)
+    out = capsys.readouterr().out
+
+    assert "任何人都能推事件" in out
+    assert code == 1, "这条只算警告（不算错误）"
 
 
 def test_demo_segment_rendering_is_readable() -> None:
