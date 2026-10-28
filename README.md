@@ -77,7 +77,7 @@ uv run haiq run --demo                     # 零成本演示（Mock，跑完即�
 3. 面板「白名单与风控」把群加进来（默认全关，不开频道什么都不做）
 
 完整流程见 **[docs/QUICKSTART.md](docs/QUICKSTART.md)**（§0–§4 已在干净克隆上逐条验证）。
-协议端侧的具体操作（NapCat 的容器与扫码）在 [docs/DEPLOY.md](docs/DEPLOY.md) 的 C.2。
+本仓库不含协议端。协议端怎么起（以 NapCat 为例的容器与扫码）见 [docs/DEPLOY.md](docs/DEPLOY.md) 的附录。
 
 ## 插件放哪
 
@@ -145,7 +145,7 @@ haiq plugin disable <id>
 
 | 文档 | 内容 |
 |---|---|
-| **[docs/QUICKSTART.md](docs/QUICKSTART.md)** | 从零到群里收到回复（含 NapCat 扫码与常见故障） |
+| **[docs/QUICKSTART.md](docs/QUICKSTART.md)** | 从零到群里收到回复（含协议端接入与常见故障） |
 | **[docs/PLUGIN-GUIDE.md](docs/PLUGIN-GUIDE.md)** | 写插件：触发器、上下文、凭据槽位、服务契约、自定义面板页 |
 | **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | 分层、能力协商、密钥隔离、事件管线、模块速查 |
 | **[docs/DEPLOY.md](docs/DEPLOY.md)** | 部署：本机 / NSSM 服务 / Docker Compose，以及运维排障 |

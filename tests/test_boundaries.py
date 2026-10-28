@@ -147,3 +147,21 @@ def test_dump_default_config_lists_discovered_plugins(tmp_path: Path, monkeypatc
 
     filled = dump_default_config()
     assert 'enabled = ["demo"]' in filled, "发现到的插件应当被列进模板"
+
+
+def test_core_secret_status_does_not_name_plugins() -> None:
+    """内核的凭据状态表不许登记具体插件 —— 插件槽位一律动态发现。
+
+    `control.SECRET_REFS` 曾经写死 `("plugin:assistant", "image_api_key_ref")`，
+    于是内核认识了一个具体插件；插件改名或换实现后那张表会悄悄过期，
+    而面板还照样显示「未设置」。
+    """
+    from haiqbot.kernel import control
+
+    bad = [row for row in control.CORE_SECRET_REFS if str(row[0]).startswith("plugin:")]
+    assert not bad, f"内核凭据表里不该出现插件段：{bad}"
+
+    source = REPO_ROOT / "src" / "haiqbot" / "kernel" / "control.py"
+    body = source.read_text(encoding="utf-8")
+    for pid in list(SHIPPED_PLUGIN_IDS) + list(EXTRA_PLUGIN_IDS):
+        assert f"plugin:{pid}" not in body, f"内核里硬编码了插件凭据：{pid}"

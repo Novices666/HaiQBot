@@ -1,8 +1,8 @@
 """OneBot v11 适配器。
 
 四种接法都支持（OneBot v11 的全部连接方式）：
-- `mode = "client"`：haiqbot 主动连 NapCat 的正向 WebSocket（推荐，最省事）
-- `mode = "server"`：haiqbot 起 WS 服务，等 NapCat/SnowLuma 反向连入（仅监听 127.0.0.1 + 强制 token）
+- `mode = "client"`：haiqbot 主动连协议端的正向 WebSocket（推荐，最省事）
+- `mode = "server"`：haiqbot 起 WS 服务，等协议端反向连入（仅监听 127.0.0.1 + 强制 token）
 - `mode = "http"`：API 走 HTTP POST，事件由 haiqbot 起 HTTP 服务接收（反向 HTTP 上报）
 - `mode = "sse"`：API 走 HTTP POST，事件用 SSE 订阅 —— 不需要任何入站端口
 

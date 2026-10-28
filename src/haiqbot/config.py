@@ -92,7 +92,7 @@ class OfficialCfg(BaseModel):
 
 class OneBotCfg(BaseModel):
     enabled: bool = False
-    # client: haiqbot 主动连接 OneBot 端的 WS 服务（NapCat 正向 WS）
+    # client: haiqbot 主动连接 OneBot 端的 WS 服务（协议端的正向 WS）
     # server: 我们起 WS 服务，等 OneBot 端反向连入
     # http:   API 走 HTTP POST 到协议端，事件由我们起 HTTP 服务接收（反向 HTTP 上报）
     # sse:    API 走 HTTP POST，事件用 SSE 订阅（不需要任何入站端口）
@@ -100,7 +100,7 @@ class OneBotCfg(BaseModel):
     url: str = "ws://127.0.0.1:3001"
     host: str = "127.0.0.1"
     port: int = 3002
-    # mode=http / sse 时协议端的 HTTP API 基址（NapCat 的 http server 端口）
+    # mode=http / sse 时协议端的 HTTP API 基址（协议端的 http server 端口）
     http_api_url: str = "http://127.0.0.1:3000"
     # mode=http：我们接收事件上报的路径与可选 HMAC-SHA1 密钥槽位
     webhook_path: str = "/onebot"
@@ -109,7 +109,7 @@ class OneBotCfg(BaseModel):
     # mode=sse：事件流路径（go-cqhttp / NapCat 都是 /_events）
     sse_path: str = "/_events"
     # mode=sse：SSE 完整地址。留空 = {http_api_url}{sse_path}。
-    # NapCat 的 HTTP API(3000) 与 SSE(3003) 是**两个端口**，这时必须显式填。
+    # 有的协议端 HTTP API 与 SSE 是两个端口（NapCat 是 3000 / 3003），这时必须显式填。
     sse_url: str = ""
     access_token_ref: str = "HAIQ_ONEBOT_ACCESS_TOKEN"
     self_id: str | None = None

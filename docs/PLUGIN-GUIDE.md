@@ -331,8 +331,8 @@ await ctx.reply.forward([ForwardNode(segments=(Segment.text("第一句"),))])
 四条约定：
 
 1. **降级不丢内容**：markdown 在 OneBot 变成纯文本；合并转发在官方侧变成逐条文本。
-2. **`path` 型媒体没人替你搬文件**：OneBot 的 `file` 是给协议端自己读的 —— NapCat 跑在
-   Docker 里就读不到宿主机路径。实测：传 Windows 路径 → `retcode 1200`；放进容器挂载目录
+2. **`path` 型媒体没人替你搬文件**：OneBot 的 `file` 是给协议端自己读的 —— 协议端跑在
+   Docker 里就读不到宿主机路径（实测用的是 NapCat）。实测：传 Windows 路径 → `retcode 1200`；放进容器挂载目录
    再传 `/app/napcat/config/x.mp4` → 成功。跨机器/容器部署请优先用 `url=`。
 3. **按钮 schema 归平台**：内核只套 `keyboard.content.rows` 这层外壳，`render_data` /
    `action` / `permission` 原样透传 —— 官方改版时插件自己改，不用等内核发新版本。
@@ -486,7 +486,7 @@ async def info(self, ctx: Context) -> None:
 
 `fetch_image` / `fetch_record` 的返回值会被归一化成 `{url, path, local}`：
 `file` 是 http(s) 直链时给 `url`；是**协议端所在机器**的绝对路径时给 `path` 且
-`local=True`。容器部署（NapCat 跑在 docker 里）时宿主侧读不到那个路径——
+`local=True`。容器部署（协议端跑在 docker 里）时宿主侧读不到那个路径——
 要么给容器配共享卷，要么只用 `url`。原始字段（`file` / `file_size` 等）原样保留。
 
 群文件系列返回 `{"files": [...], "folders": [...]}`：协议端原始字段（`file_id` /

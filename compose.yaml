@@ -1,14 +1,21 @@
-# haiqbot —— 两种部署形态
+# haiqbot —— 本文件只描述它自己。
 #
-#   仅官方平台（不需要 QQ 客户端）：
-#       docker-compose up -d haiqbot
-#   官方 + OneBot（需要真实 QQ 账号）：
-#       docker-compose --profile onebot up -d
+# 这里**没有协议端**，而且是刻意的：OneBot v11 是一个协议，不是一个实现。
+# NapCat / Lagrange / LLOneBot / go-cqhttp 都是独立项目，由你自己部署。
+# haiqbot 只通过 haiq.docker.toml 里的 [onebot] 地址连过去。
+#
+# 首次使用（两条命令，让两个容器能互相看见）：
+#   docker network create haiqbot_net
+#   docker network connect haiqbot_net <你的协议端容器名>
+#
+# 只用官方平台、完全不要协议端时：把文件末尾 networks 那一整段删掉即可。
+#
+#   docker compose up -d --build
 #
 # 注意：
-# 1. napcat 会挂载一个真实 QQ 账号，属第三方非官方协议端，账号风险自负。
-# 2. 所有端口都只绑 127.0.0.1；公网只应反代 haiqbot 的 /i/*。
-# 3. 本机若装了系统代理（Clash 等），验证 http://127.0.0.1 时要用 trust_env=False。
+# 1. 端口只发布到宿主 127.0.0.1；公网最多反代 /i/*。
+# 2. 协议端在别的网络里时连不上 —— 容器里的 127.0.0.1 是它自己。
+# 3. 本机若装了系统代理（Clash 等），验证 http://127.0.0.1 时客户端要 trust_env=False。
 
 services:
   haiqbot:
@@ -22,47 +29,24 @@ services:
       HAIQ_DATA_DIR: /data
       HAIQ_SECRETS_DIR: /secrets
       PYTHONUNBUFFERED: "1"
+      TZ: Asia/Shanghai
     volumes:
+      # 状态：SQLite / 媒体库 / 插件参数。属主必须是容器里的 uid 10001。
       - ./data:/data
+      # 凭据：vault.json（口令在 .env，不在这里）
       - ./secrets:/secrets
-      # 插件目录（不放镜像里改起来要重建，挂载进来即可热替换）
+      # 插件挂进来即可热替换，不必重建镜像
       - ./plugins:/app/plugins
-      - ./haiq.toml:/app/haiq.toml:ro
+      - ./plugins-extra:/app/plugins-extra
+      # 配置：容器版（本机开发用 haiq.toml，两者互不影响）。
+      # 不能加 :ro —— 面板「配置中心」保存时直接写这个文件。
+      - ./haiq.docker.toml:/app/haiq.toml
     ports:
       # 仅本机；公网只反代 /i/*
       - "127.0.0.1:8080:8080"
 
-  napcat:
-    image: mlikiowa/napcat-docker:latest
-    container_name: napcat
-    restart: unless-stopped
-    profiles: ["onebot"]
-    # QQ(Electron) 需要足够的共享内存，否则容易崩
-    shm_size: "1g"
-    environment:
-      TZ: Asia/Shanghai
-      # 容器内直接跑 root，避免 Windows 绑定挂载的属主问题
-      NAPCAT_UID: "0"
-      NAPCAT_GID: "0"
-      # QQ 号。留空则启动后在 6099 面板扫码登录
-      ACCOUNT: "${QQ_ACCOUNT:-}"
-      # 关键：清空代理。宿主机开着系统代理 / TUN 时，Docker 出站会被接管，
-      # NapCat 上传图片会失败并报 rich media transfer failed（文字消息不受影响）。
-      HTTP_PROXY: ""
-      HTTPS_PROXY: ""
-      http_proxy: ""
-      https_proxy: ""
-      NO_PROXY: "localhost,127.0.0.1,host.docker.internal,*.local"
-      no_proxy: "localhost,127.0.0.1,host.docker.internal,*.local"
-    ports:
-      # OneBot v11 正向 WebSocket —— haiqbot 连这个
-      - "127.0.0.1:3001:3001"
-      # OneBot v11 HTTP API —— onebot.mode=http / sse 时走这里
-      - "127.0.0.1:3000:3000"
-      # NapCat WebUI —— 扫码登录/改配置
-      - "127.0.0.1:6099:6099"
-    volumes:
-      # 内含 webui.json / onebot11.json（有 token，已 gitignore）
-      - ./.dev/napcat/config:/app/napcat/config
-      # QQ 登录态
-      - ./.dev/napcat/qq:/app/.config/QQ
+networks:
+  # 和协议端共用一张网，才能用容器名互相访问
+  default:
+    name: haiqbot_net
+    external: true

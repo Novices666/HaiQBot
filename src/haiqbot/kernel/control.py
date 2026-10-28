@@ -36,11 +36,9 @@ class ControlError(Exception):
         self.status_code = status_code
 
 
-# 只暴露"是否已设置"的 vault 键（真值永不外带）
-# scope 以 "plugin:" 开头表示插件配置段（生图 / 对话已归插件所有）
-SECRET_REFS: tuple[tuple[str, str, str], ...] = (
-    ("plugin:assistant", "image_api_key_ref", "生图 API Key"),
-    ("plugin:assistant", "chat_api_key_ref", "对话 API Key"),
+# 内核自己的凭据：键名来自配置，与任何插件无关（真值永不外带）。
+# 插件声明的槽位**不在这里登记** —— 走 secret_index 动态遍历，见 _plugin_secret_status()。
+CORE_SECRET_REFS: tuple[tuple[str, str, str], ...] = (
     ("onebot", "access_token_ref", "OneBot Access Token"),
     ("official", "app_secret_ref", "QQ 官方 AppSecret"),
     ("webui", "token_ref", "面板写操作令牌"),
@@ -48,9 +46,7 @@ SECRET_REFS: tuple[tuple[str, str, str], ...] = (
 
 
 def _secret_ref(runtime: Any, scope: str, key: str) -> str:
-    if scope.startswith("plugin:"):
-        cfg = runtime.config.plugin_config.get(scope[len("plugin:") :]) or {}
-        return str(cfg.get(key) or "")
+    """内核段的 `*_ref` 配置值。插件槽位不走这里。"""
     holder = getattr(runtime.config, scope, None)
     return str(getattr(holder, key, "") or "")
 
@@ -86,17 +82,42 @@ def require_write_token(runtime: Any, authorization: str | None) -> None:
 # -- 读取 ------------------------------------------------------------------ #
 
 
-def _secret_status(runtime: Any) -> list[dict[str, Any]]:
+def _is_set(runtime: Any, ref: str) -> bool:
+    """问 vault，不问配置 —— 配置里没有 `<slot>_ref` 不代表库里没有。"""
+    if not ref or runtime.vault is None:
+        return False
+    try:
+        return bool(runtime.vault.resolve(ref).present)
+    except Exception:  # noqa: BLE001 - 后端故障不该让面板打不开
+        return False
+
+
+def _plugin_secret_status(runtime: Any) -> list[dict[str, Any]]:
+    """插件槽位 → 状态。动态遍历插件类，内核不认识任何具体插件。"""
+    from .plugin import resolve_secret_ref
+    from .secret_index import slot_index
+
     out: list[dict[str, Any]] = []
-    for scope, key, label in SECRET_REFS:
+    config = runtime.config
+    for slot_key, entry in sorted(slot_index(config).items()):
+        section = config.plugin_config.get(entry["plugin"]) or {}
+        ref = resolve_secret_ref(entry["plugin"], entry["name"], entry["slot"], section)
+        out.append(
+            {
+                "path": f"plugin:{slot_key}",
+                "label": entry["slot"].label,
+                "ref": ref,
+                "set": _is_set(runtime, ref),
+            }
+        )
+    return out
+
+
+def _secret_status(runtime: Any) -> list[dict[str, Any]]:
+    out = _plugin_secret_status(runtime)
+    for scope, key, label in CORE_SECRET_REFS:
         ref = _secret_ref(runtime, scope, key)
-        present = False
-        if ref and runtime.vault is not None:
-            try:
-                present = runtime.vault.get(ref) is not None
-            except Exception:  # noqa: BLE001 - 后端故障不该让面板打不开
-                present = False
-        out.append({"path": f"{scope}.{key}", "label": label, "ref": ref, "set": present})
+        out.append({"path": f"{scope}.{key}", "label": label, "ref": ref, "set": _is_set(runtime, ref)})
     return out
 
 

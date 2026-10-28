@@ -130,16 +130,16 @@ haiq run --demo
 浏览器打开 <http://127.0.0.1:8080>，粘上刚生成的令牌登录。
 能看到「总览」有数据、侧栏 8 个页面，就说明框架是通的。`Ctrl+C` 停掉。
 
-### Windows + NapCat：一条命令起整条链路（可选）
+### 本机开发：一条命令起链路（作者的脚本，可选）
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\dev-up.ps1
 ```
 
-> 这条脚本是**给 NapCat 容器准备的便利**，不是框架的一部分 —— 用别的协议端就自己起它，
-> 然后按 §6 在面板里填连接。脚本做的事：起 Docker Desktop（已在跑就跳过）→ 起 `napcat` 容器
-> （同名容器已存在就直接复用，不重建）→ 等 OneBot WS `3001` 监听 → 后台拉起 `haiq run`
-> 并等 WebUI 就绪。NapCat 侧的容器细节、扫码登录见 [DEPLOY.md](DEPLOY.md) 的 C.2。
+> `scripts\dev-up.ps1` 是**作者本机的开发脚本**，不是框架的一部分，也**不含任何协议端**：
+> 它只会 `docker start` 一个你已经存在的容器（默认名字 `napcat`），没有就跳过；
+> 然后等 OneBot WS 端口监听，后台拉起 `haiq run` 并等 WebUI 就绪。
+> 协议端怎么装、怎么登录，是它自己的事 —— 按 §5 自己起，再按 §6 在面板里填连接。
 
 | 参数 | 作用 |
 | :--- | :--- |
@@ -174,7 +174,7 @@ haiq secrets list                      # 看哪些槽位还是「未设置」
 
 | 实现 | 形态 | 说明 |
 |---|---|---|
-| NapCat | Docker / 桌面版 | 容器细节见 [DEPLOY.md](DEPLOY.md) 的 C.2 |
+| NapCat | Docker / 桌面版 | 只是举例；它的容器与扫码见 [DEPLOY.md](DEPLOY.md) 的附录 |
 | Lagrange.OneBot | 桌面版 | C# 实现 |
 | LLOneBot | QQNT 插件 | 复用你已登录的 QQ 客户端 |
 | 别的 | 只要实现 OneBot v11 | 能给出下面两样东西就行 |
@@ -208,7 +208,7 @@ haiq run
 |---|---|
 | 启用 OneBot | 开 |
 | 连接角色 | `client`（正向 WS，最常见）／`server`（我们监听，等协议端连入） |
-| 协议端 WS 地址 | 协议端给的正向 WS 地址。`3001` 只是常见默认值（NapCat 侧可改），以它显示给你的为准 |
+| 协议端 WS 地址 | 协议端给的正向 WS 地址。`3001` 只是常见默认值（协议端侧可改），以它显示给你的为准 |
 | 本机监听地址 / 端口 | **只在需要入站时用**：`server`（我们起 WS 等协议端连入）和 `http`（我们起 HTTP 收事件上报），默认 `127.0.0.1:3002`。`client` / `sse` 模式忽略这两项 —— 它们连的地址在上面「协议端 WS 地址」和 `http_api_url` 里 |
 | Access Token 键名 | `HAIQ_ONEBOT_ACCESS_TOKEN`（**键名**，不是令牌本身） |
 | 机器人 QQ 号 | **留空即可**：事件和心跳都带 `self_id`，适配器会自己记下来；只有协议端从不发 `meta_event` 时才需要填 |
@@ -220,7 +220,7 @@ haiq run
 onebot_connected     url=ws://127.0.0.1:3001
 ```
 
-> HTTP / SSE 模式：四种连接方式怎么选、地址该怎么填，见 [DEPLOY.md](DEPLOY.md) 的 C.2.1。
+> HTTP / SSE 模式：四种连接方式怎么选、地址该怎么填，见 [DEPLOY.md](DEPLOY.md) 的 C.2。
 > 不想用面板：改 `haiq.toml` 的 `[onebot]` 段 + `haiq secrets set HAIQ_ONEBOT_ACCESS_TOKEN`，
 > 然后重启进程（这两项改了要重连/重启才生效）。
 
@@ -272,8 +272,8 @@ haiq channels verify          # 体检：有没有「配了却不生效」
 | 群里 @ 了没反应 | 频道没开（默认全关）；或该群 `plugins` 列表里没有对应插件。跑 `haiq channels verify` |
 | 日志里 `插件来源 0 个` | `plugin_dirs` 写错位置（必须放在任何 `[section]` 前）或路径不存在（相对路径按**启动时工作目录**解析） |
 | 换过口令后一直解不开 | 派生密钥在进程内缓存，改口令必须重启服务 |
-| 文字正常、发图必失败 | **宿主机系统代理开着** → 协议端（尤其容器里的）上传被劫走。先关代理；NapCat 还要看它的 `baseTimeout` ≥ 60000 |
-| 扫码/登录出不来二维码 | 那是协议端的事，看它的文档；NapCat 见 [DEPLOY.md](DEPLOY.md) 的 C.2 |
+| 文字正常、发图必失败 | **宿主机系统代理开着** → 协议端（尤其容器里的）上传被劫走。先关代理；NapCat 这类协议端还要看它自己的上传超时（`baseTimeout` ≥ 60000） |
+| 扫码/登录出不来二维码 | 那是协议端的事，看它自己的文档；以 NapCat 为例见 [DEPLOY.md](DEPLOY.md) 的附录 |
 | 面板登录不了 | 令牌没生成：`haiq webui token --generate`；或口令变了导致读不到令牌（重启服务） |
 | 改了插件配置没生效 | `ctx.config` 是活视图，但插件读配置的方式要对（`Mapping` 而非 `dict`）；纯代码改动必须重启 |
 

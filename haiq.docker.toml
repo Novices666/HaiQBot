@@ -1,0 +1,83 @@
+# haiq.docker.toml —— 容器部署专用配置
+#
+# compose.yaml 把它挂成容器里的 /app/haiq.toml，仓库根的 haiq.toml 留给本机开发。
+# 和本机版只有三处不同，都是容器环境决定的，不是口味问题：
+#
+#   1) [webui] host = "0.0.0.0"
+#      容器里绑 127.0.0.1 只监听容器自己的回环，宿主发布出来的端口根本连不进来。
+#   2) [media] 不写 dir
+#      显式写相对路径会按工作目录解析，落到 /app/data/media —— 不在卷里，重建即丢图。
+#   3) [onebot] url 写容器名
+#      容器里的 127.0.0.1 是它自己，不是宿主机，也不是另一个容器。
+#
+# 改这个文件后 `docker compose restart haiqbot` 生效；面板「配置中心」保存也是改它。
+
+data_dir = "data"          # 容器里被 HAIQ_DATA_DIR=/data 覆盖
+log_level = "INFO"
+log_json = false
+
+plugin_dirs = ["plugins", "plugins-extra"]
+
+[plugins]
+enabled = ["echo", "help", "admin", "assistant", "guard"]
+
+[quota]
+enabled = true
+per_user_per_day = 0
+per_channel_per_day = 300
+rate_per_user_per_min = 6
+rate_global_per_min = 120
+
+[policy]
+channel_whitelist = []
+channel_blacklist = []
+owners = []
+admins = []
+
+[media]
+# dir 故意不写：跟随 data_dir → /data/media
+ttl_seconds = 86400
+# 默认 base64 内嵌发图，下面两项都不用填。
+# 只有走「公网 URL 发图」或官方平台时，才需要填一个公网可达地址并开 serve_port。
+public_base_url = ""
+serve_port = 0
+
+[webui]
+enabled = true
+host = "0.0.0.0"
+port = 8080
+
+[official]
+enabled = false
+app_secret_ref = "HAIQ_QQ_APP_SECRET"
+
+[onebot]
+enabled = true
+mode = "client"
+# ←← 改成你的协议端容器名。它必须和 haiqbot 在同一个 Docker 网络里（见 compose.yaml）
+url = "ws://napcat:3001"
+# mode = http / sse 时才用这一项
+http_api_url = "http://napcat:3000"
+webhook_path = "/onebot"
+webhook_secret_ref = ""
+sse_path = "/_events"
+access_token_ref = "HAIQ_ONEBOT_ACCESS_TOKEN"
+# 留空即可：事件和心跳都带 self_id，适配器会自己记下来
+self_id = ""
+# auto = 有本地文件就 base64 内嵌，不依赖任何端口/域名
+image_transport = "auto"
+api_timeout_seconds = 60.0
+send_timeout_seconds = 120
+
+[outbound]
+enabled = true
+min_interval_seconds = 1.2
+global_per_minute = 30
+max_wait_seconds = 30
+retry_max = 3
+retry_backoff_seconds = 2
+
+[vault]
+enc = "aead"
+# 真值只放环境变量（compose 的 env_file: .env），这里只写键名
+passphrase_ref = "HAIQ_VAULT_PASSPHRASE"

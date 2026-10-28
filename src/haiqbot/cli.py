@@ -233,7 +233,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         if without_bypass:
             print(f"警告：检测到系统代理 {without_bypass}；本地 http://127.0.0.1 请求可能被代理拦截")
             print("      验证 /i/* 时请用 trust_env=False 的客户端，或把 127.0.0.1 加入代理例外")
-            print("      更要紧：协议端（尤其跑在容器里的 NapCat）的媒体上传也会被代理劫走，")
+            print("      更要紧：协议端（尤其跑在容器里的）媒体上传也会被代理劫走，")
             print("              表现为「文字正常、发图失败」（rich media transfer failed）——先关代理再排障")
             warnings += 1
         if "no" in proxies:

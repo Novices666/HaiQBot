@@ -382,7 +382,7 @@ class App:
     async def start_media_http(self) -> None:
         """只读媒体服务：给协议端一个能拉到图片的 URL。
 
-        实测 NapCat 里 base64 / 本地路径 / file:// 发图都会被拒（rich media
+        实测（NapCat）base64 / 本地路径 / file:// 发图都会被拒（rich media
         transfer failed），只有 http(s) URL 能成。面板仍然只绑 127.0.0.1，
         这里单独开一个**只暴露 `/i/<id>`** 的端口，把暴露面压到最小。
         """

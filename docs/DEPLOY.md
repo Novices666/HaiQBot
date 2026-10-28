@@ -5,11 +5,11 @@
 
 三种形态，按场景选一种即可。
 
-| 形态 | 适用 | QQ 客户端 | 命令入口 |
+| 形态 | 适用 | 协议端 | 命令入口 |
 |---|---|---|---|
-| A. 本机直跑 | 开发调试 | 需要（OneBot 路线） | `uv run haiq run` |
-| B. Windows 服务 | 长期挂本机 | 需要（OneBot 路线） | NSSM 托管 `haiq.exe` |
-| C. Docker | 服务器 / 想隔离 | 容器里跑 NapCat | `docker-compose up -d` |
+| A. 本机直跑 | 开发调试 | 自己另外起 | `uv run haiq run` |
+| B. Windows 服务 | 长期挂本机 | 自己另外起 | NSSM 托管 `haiq.exe` |
+| C. 容器 | 服务器 / 想隔离 | 自己另外起（**不在本项目的 compose 里**） | `docker compose up -d` |
 
 ---
 
@@ -95,141 +95,132 @@ powershell -ExecutionPolicy Bypass -File .\deploy\windows\install-service.ps1 -U
 
 ---
 
-## C. Docker 全栈
+## C. 容器（只跑 haiqbot）
 
-### C.1 只跑 haiqbot（官方平台路线，不需要 QQ 客户端）
+`compose.yaml` 里**只有 haiqbot 一个服务**，没有协议端，以后也不会有：
+OneBot v11 是一个**协议**，协议端（NapCat / Lagrange / LLOneBot / go-cqhttp …）
+是别人的项目 —— 它们怎么装、跑在哪、用哪个账号，与框架无关。
+框架只需要一个地址和一份 token。
 
-```bash
-docker-compose up -d haiqbot
-docker-compose logs -f haiqbot
-```
-
-### C.2 haiqbot + 协议端（下面用 NapCat 容器举例）
-
-> 内核只认 **OneBot v11 协议**，不认具体实现。用 Lagrange / LLOneBot / 别的协议端时，
-> **跳过本章**，按 [QUICKSTART.md](QUICKSTART.md) 的 §5–§6 在面板里填连接即可；
-> 本章只解决「协议端自己怎么跑起来」。
-
-**第一步：初始化 NapCat 配置（带 token，不要用空 token）**
+### C.1 起容器
 
 ```bash
-uv run python scripts/init_napcat.py
+docker compose up -d
+docker compose logs -f haiqbot
 ```
 
-它会做三件事：
-- 写 `.dev/napcat/config/webui.json`（WebUI 口令，仅本机可达）
-- 写 `.dev/napcat/config/onebot11.json`（OneBot WS 监听 3001，**带 access_token**）
-- 把两个 token 写进 haiq vault（`NAPCAT_WEBUI_TOKEN` / `HAIQ_ONEBOT_ACCESS_TOKEN`）
+挂载了什么：
 
-**第二步：起容器**
+| 宿主 | 容器 | 作用 |
+|---|---|---|
+| `./data` | `/data` | SQLite、媒体库、插件参数 |
+| `./secrets` | `/secrets` | `vault.json`（口令不在这里） |
+| `./plugins` | `/app/plugins` | 框架自带插件（echo / help） |
+| `./plugins-extra` | `/app/plugins-extra` | 你自己的插件（admin / assistant / guard） |
+| `./haiq.docker.toml` | `/app/haiq.toml` | 容器版配置（**不能加 `:ro`**，面板保存要写它） |
+| `.env` | 进程环境（`env_file`） | `HAIQ_VAULT_PASSPHRASE` |
+
+`plugin_dirs = ["plugins", "plugins-extra"]` 按容器内的 `WORKDIR /app` 解析 ——
+**两个目录缺一个，对应的插件就整组消失，而且没有任何报错**。镜像里已经 `COPY`
+了这两份，挂载又各覆盖一次（为了改插件不用重建镜像）。
+
+镜像以 uid 10001（非 root）运行：`data/`、`secrets/` 在宿主上要对它可写。
+
+面板 `http://127.0.0.1:8080`，只绑本机。
+
+**容器专用配置**：`haiq.docker.toml` 与仓库根的 `haiq.toml` 是两份，互不影响 ——
+本机开发用后者，容器用前者。它只比本机版多三处**被容器环境逼出来的**差异：
+`[webui] host = "0.0.0.0"`（绑 127.0.0.1 的话宿主发布端口连不进来）、
+`[media]` 不写 `dir`（写了会落到 `/app/data/media`，不在卷里）、
+`[onebot] url` 用协议端的容器名。
+
+**先建网络**（让两个容器能互相看见，两条命令）：
 
 ```bash
-docker-compose --profile onebot up -d
-# 只有 docker 插件没装时才用 standalone 命令：
-# docker-compose --profile onebot up -d
+docker network create haiqbot_net
+docker network connect haiqbot_net <你的协议端容器名>
 ```
 
-端口全部只绑 `127.0.0.1`：
+`compose.yaml` 末尾把 `haiqbot_net` 声明为 `external: true`，所以这张网必须先存在。
+只用官方平台、不要协议端的话，把 `networks:` 那一段删掉即可。
 
-| 端口 | 用途 |
-|---|---|
-| 6099 | NapCat WebUI（扫码登录 / 改配置） |
-| 3001 | OneBot v11 正向 WebSocket（haiqbot 连它） |
-| 8080 | haiqbot WebUI + `/i/*` 媒体 |
+### C.2 连你自己的协议端
 
-**第三步：登录 QQ**
-
-浏览器打开 `http://127.0.0.1:6099/webui`，填 `.dev/napcat/config/webui.json` 里的 `token`，扫码登录。
-
-也可以用命令行看二维码：
-
-```bash
-docker logs napcat | tail -40        # 终端二维码 + 解码 URL
-docker cp napcat:/app/napcat/cache/qrcode.png ./qrcode.png
-```
-
-二维码约 2 分钟过期，过期就重启容器或用 WebUI 里的刷新。
-
-**第四步：确认 OneBot WS 已就绪**
-
-```bash
-netstat -ano | findstr :3001
-docker logs napcat | grep -i websocket
-```
-
-**第五步：启 haiqbot 接上去**
-
-`haiq.toml`：
-
-```toml
-[onebot]
-enabled = true
-mode = "client"
-url = "ws://127.0.0.1:3001"
-access_token_ref = "HAIQ_ONEBOT_ACCESS_TOKEN"
-```
-
-```bash
-uv run haiq run
-# 日志应出现 onebot_connected
-```
-
-### C.2.1 四种连接方式怎么选
-
-OneBot v11 的接法全支持，`haiq.toml` 的 `[onebot] mode` 决定用哪种：
+框架不认识任何具体实现，只认这四条：
 
 | mode | API 怎么走 | 事件怎么来 | 需要入站端口 | 适用 |
 |---|---|---|---|---|
 | `client` | 正向 WS | 同一条 WS | 否 | **默认，最省事** |
-| `server` | 反向 WS | 同一条 WS | 是（默认 3002） | haiqbot 在 NAT 后、协议端能连过来 |
-| `http` | HTTP POST | 协议端 HTTP 上报到 haiqbot | 是（默认 3002） | 协议端只开了 HTTP |
-| `sse` | HTTP POST | SSE 订阅 `/events` | **否** | 两边都在 NAT 后、只要出网 |
+| `server` | 反向 WS | 同一条 WS | 是（默认 3002） | 协议端能连过来 |
+| `http` | HTTP POST | 协议端上报 | 是（默认 3002） | 协议端只开了 HTTP |
+| `sse` | HTTP POST | SSE 订阅 | **否** | 两边都在 NAT 后 |
+
+**容器化的第一个坑：`127.0.0.1` 在容器里指容器自己，不是宿主机。**
+
+| 协议端在哪 | `[onebot] url` 写什么 |
+|---|---|
+| 宿主机（原生进程 / Windows 服务） | `ws://host.docker.internal:3001` |
+| 同 Docker 网络里的另一个容器 | `ws://<容器名>:3001`（推荐，见 C.1 的两条 network 命令） |
+| 另一台机器 | `ws://<内网地址>:3001` |
+
+Linux 上 `host.docker.internal` 默认不存在，要在 compose 里加：
+
+```yaml
+services:
+  haiqbot:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+```
 
 ```toml
-# http 模式示例
+# haiq.toml —— 协议端在宿主机
+[onebot]
+enabled = true
+mode = "client"
+url = "ws://host.docker.internal:3001"
+access_token_ref = "HAIQ_ONEBOT_ACCESS_TOKEN"
+```
+
+```toml
+# http 模式：协议端只开了 HTTP API
 [onebot]
 mode = "http"
-http_api_url = "http://127.0.0.1:3000"   # 协议端 HTTP API
-host = "127.0.0.1"                       # haiqbot 收上报的监听地址
+http_api_url = "http://host.docker.internal:3000"
+host = "0.0.0.0"                 # 容器里收上报必须是 0.0.0.0
 port = 3002
 webhook_path = "/onebot"
-webhook_secret_ref = ""                  # 填了就用 HMAC-SHA1 校验 X-Signature
+webhook_secret_ref = ""
 access_token_ref = "HAIQ_ONEBOT_ACCESS_TOKEN"
+```
 
-# sse 模式示例（不需要入站端口）
+```toml
+# sse 模式：不需要任何入站端口
 [onebot]
 mode = "sse"
-http_api_url = "http://127.0.0.1:3000"
+http_api_url = "http://host.docker.internal:3000"
 sse_path = "/_events"
-# NapCat 的 HTTP API 与 SSE 是两个端口（3000 / 3003）时必须显式写完整地址：
-sse_url = "http://127.0.0.1:3003/_events"
 access_token_ref = "HAIQ_ONEBOT_ACCESS_TOKEN"
 ```
 
 上报鉴权顺序：配了 `webhook_secret_ref` → 只认 `X-Signature: sha1=...`（HMAC-SHA1，签名对象是原始 body）；
 否则认 `Authorization: Bearer <token>`；两者都没配则**任何人推的事件都会被当真**，`doctor` 会警告。
 
-**真机实测（NapCat 4.18 / Docker Desktop）踩到的三个坑：**
+`http` / `server` 两种模式要收到入站连接，得在 compose 里发布对应端口，并在 `[onebot] host`
+里写 `0.0.0.0`；`client` / `sse` 完全不需要入站端口，这也是默认推荐它们的理由。
 
-1. NapCat 的 HTTP 上报**只带** `X-Signature: sha1=<HMAC-SHA1(body, token)>` 与 `X-Self-ID`，
-   **没有** `Authorization` 头 —— 所以 HMAC 密钥必须能回落到 `access_token`，否则合法上报一律 401。
-2. 协议端在容器里时 `[onebot] host` 必须是 `0.0.0.0`（容器经 `host.docker.internal` 回连），
-   并且容器的 `NO_PROXY` 要包含 `host.docker.internal`，否则上报会被容器内的代理吞掉。
-3. 容器重建后若退回二维码登录，说明启动参数缺 `-e ACCOUNT=<QQ号>`（镜像 entrypoint 靠它做快速登录）。
-
-### C.3 重建 / 换账号
+### C.3 重建 / 换配置
 
 ```bash
-docker rm -f napcat                       # 只删容器，登录态在 ./.dev/napcat/qq 里
-rm -rf .dev/napcat/qq/*                        # 真要换账号才删
-docker-compose --profile onebot up -d
+docker compose up -d --build haiqbot     # 改了代码、Dockerfile 或插件
+docker compose restart haiqbot           # 只改了 .env
+docker compose down                      # data/ 与 secrets/ 在宿主上，不会丢
 ```
 
 ---
 
 ## D. 公网回源（只有官方平台需要）
 
-**OneBot 路线不需要这一步** —— 图片以 `base64://` 内嵌在消息里发出，NapCat 直接上传，
+**OneBot 路线不需要这一步** —— 图片以 `base64://` 内嵌在消息里发出，协议端直接上传，
 完全不依赖你的服务器能被公网访问（`image_transport = "auto"` 默认行为）。
 
 官方平台则必须：腾讯要能拉到你生成的图，`127.0.0.1` 它够不着。
@@ -265,17 +256,16 @@ public_base_url = "https://bot.example.com"
 **Q: `docker compose` 提示 unknown command？**
 这台机器只装了 standalone 版，用 `docker-compose`（带横杠）。
 
-**Q: 容器起来但 3001 没监听？**
-NapCat 的 OneBot 网络配置在登录成功后才生效。先扫码登录。
-
-**Q: 二维码扫了没反应？**
-二维码 2 分钟过期。`docker restart napcat` 重新生成，或直接用 WebUI 里的。
+**Q: 容器起来了，但连不上协议端？**
+按顺序查：① 协议端已登录且 OneBot 服务在监听；② `[onebot] url` 指对了
+（容器里的 `127.0.0.1` 不是宿主机，见 C.2）；③ 两侧 `access_token` 一致；
+④ `haiq doctor` 看有没有代理告警。协议端自身怎么登录，看它自己的文档。
 
 **Q: `/画图` 之后很久没动静，或者审计里看到 `assistant` 的相关失败？**
 OneBot 路线两个已知坑，都已在代码里修掉，若从旧版本升级请确认没跑着旧进程：
 1. **事件死锁** —— 收包循环 inline await 事件处理，处理里又要 `send_group_msg` 等回包，
    回包只能由同一循环读 → 死锁到 `api_timeout`。现已改为 `create_task` 异步派发。
-2. **媒体发送超时** —— 2 MB 图转 base64 后 2.8 MB，NapCat 上传可能 >15s。现已拆成
+2. **媒体发送超时** —— 2 MB 图转 base64 后 2.8 MB，协议端上传可能 >15s。现已拆成
    `api_timeout_seconds`(15s) 与 `send_timeout_seconds`(120s) 两档。
 
 **Q: 群里出现「生成失败，已记录 trace」，但图片其实到了？**
@@ -287,10 +277,10 @@ OneBot 路线两个已知坑，都已在代码里修掉，若从旧版本升级�
 |---|---|
 | haiqbot 数据库 / 媒体 | `data/` |
 | haiqbot 凭据 | `secrets/vault.json`（scrypt + AES-256-GCM，密码走环境变量） |
-| NapCat 配置（含 token） | `.dev/napcat/config/` |
-| QQ 登录态 | `.dev/napcat/qq/` |
 
-`secrets/`、`data/`、`.dev/` 都已在 `.gitignore` 里。
+`secrets/`、`data/` 都已在 `.gitignore` 里。
+协议端自己的配置与登录态在它自己的目录里（本仓库的 `.dev/` 只是我本机的例子），
+**不属于本项目**，备份与迁移请按它的文档来。
 
 ## 改名说明（weft → HaiQBot）
 
@@ -310,7 +300,10 @@ OneBot 路线两个已知坑，都已在代码里修掉，若从旧版本升级�
 **开关体检**：`haiq channels verify` 会把「配了却不生效」的情况点出来（插件名拼错、
 未声明的 feature、`enabled=1` 但列表为空、always 插件写多余了）。有 error 时退出码 1。
 
-## 协议端怎么部署：Docker 还是 Windows 原生
+## 附录：协议端参考（不是框架的一部分）
+
+> 这一节讲的是**协议端**，不是 haiqbot。放进来只是因为排障时绕不开它。
+> 换任何别的 OneBot v11 实现，本节可以整段忽略。
 
 两种形态跑的是**同一份 NapCat**，区别只在 QQ 客户端跑在哪：
 
@@ -331,6 +324,14 @@ OneBot 路线两个已知坑，都已在代码里修掉，若从旧版本升级�
 上方「本机代理」那条只解释了 Docker 形态下的现象；如果关掉代理仍然发不出去，
 换 Windows 原生版本是成本最低的验证手段——`haiq.toml` 一行都不用改，
 协议端仍是 `ws://127.0.0.1:3001`。
+
+### NapCat 实测三坑（4.18 / Docker Desktop）
+
+1. HTTP 上报**只带** `X-Signature: sha1=<HMAC-SHA1(body, token)>` 与 `X-Self-ID`，
+   **没有** `Authorization` 头 —— 所以 HMAC 密钥必须能回落到 `access_token`，否则合法上报一律 401。
+2. 它在容器里时，haiqbot 侧 `[onebot] host` 必须是 `0.0.0.0`（它经 `host.docker.internal` 回连），
+   并且它容器的 `NO_PROXY` 要包含 `host.docker.internal`，否则上报会被容器内的代理吞掉。
+3. 容器重建后退回二维码登录，说明启动参数缺 `-e ACCOUNT=<QQ号>`（镜像 entrypoint 靠它快速登录）。
 
 ### Windows 原生的两个坑（实测）
 
@@ -363,7 +364,7 @@ OneBot 路线两个已知坑，都已在代码里修掉，若从旧版本升级�
 
 **2. NapCat 的等待时间**
 
-`.dev/napcat/config/onebot11_<uin>.json` 里：
+以 NapCat 为例，它的 `onebot11_<uin>.json` 里有（别的协议端各自的配置项）：
 
 ```json
 "timeout": { "baseTimeout": 10000, "uploadSpeedKBps": 256, "maxTimeout": 1800000 }

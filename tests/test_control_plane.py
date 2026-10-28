@@ -188,7 +188,7 @@ async def test_config_get_exposes_no_secret_values(ui: object, ctl: Runtime) -> 
     assert resp.status_code == 200
     assert FAKE_API_KEY not in resp.text, "密钥真值绝不能出现在面板接口里"
     body = resp.json()["data"]
-    image_secret = next(s for s in body["secrets"] if s["path"] == "plugin:assistant.image_api_key_ref")
+    image_secret = next(s for s in body["secrets"] if s["path"] == "plugin:assistant.image_api_key")
     assert image_secret["set"] is True
     assert image_secret["ref"] == "HAIQ_IMAGE_API_KEY"
 
