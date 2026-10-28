@@ -26,8 +26,6 @@ IMAGE_SIZES = (
     "auto",
 )
 
-IMAGE_MODELS = ("gpt-image-1", "gpt-image-2", "gpt-image-2.5", "dall-e-3")
-
 #: 凭据槽位名 / 配置前缀。配置写成 `[plugins.assistant] image_model = ...`，
 #: 取子配置时剥掉前缀再交给 `ImageCfg` —— 一个段里放两套配置，靠前缀区分。
 SLOT = "image_api_key"

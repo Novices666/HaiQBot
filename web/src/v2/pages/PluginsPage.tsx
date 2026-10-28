@@ -1,5 +1,5 @@
 /** 插件与能力：装载状态、命令、按 config_schema 渲染配置表单、凭据是否已设置。 */
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   Alert,
   Button,
@@ -20,12 +20,22 @@ import {
 } from "antd";
 import { post } from "../../api";
 import { text, usePoll } from "../lib";
-import type { CommandRow, PluginRow, SchemaField, SecretSlot, ServiceInfo } from "../types";
+import LiveField from "../components/LiveField";
+import type {
+  CommandRow,
+  PluginRow,
+  SchemaField,
+  SecretSlot,
+  ServiceInfo,
+} from "../types";
 
 const ROLE_NAME: Record<number, string> = { 1: "群友", 2: "管理员", 3: "群主" };
 
 function SchemaForm({ plugin, onSaved }: { plugin: PluginRow; onSaved: () => void }) {
   const [saving, setSaving] = useState(false);
+  const [form] = Form.useForm();
+  // 稳定引用：LiveField 靠它取「还没保存」的值（改了 base_url 不必先保存才能拉列表）
+  const collect = useCallback(() => form.getFieldsValue() as Record<string, unknown>, [form]);
   const schema = plugin.config_schema ?? [];
   const initial: Record<string, unknown> = {};
   for (const field of schema) {
@@ -51,7 +61,7 @@ function SchemaForm({ plugin, onSaved }: { plugin: PluginRow; onSaved: () => voi
   }
 
   return (
-    <Form layout="vertical" initialValues={initial} onFinish={save} size="small">
+    <Form form={form} layout="vertical" initialValues={initial} onFinish={save} size="small">
       <Flex wrap gap={16}>
         {schema.map((field: SchemaField) => (
           <Form.Item
@@ -61,7 +71,9 @@ function SchemaForm({ plugin, onSaved }: { plugin: PluginRow; onSaved: () => voi
             extra={field.description}
             style={{ minWidth: 260, flex: "1 1 260px", marginBottom: 12 }}
           >
-            {field.choices && field.choices.length > 0 ? (
+            {field.dynamic ? (
+              <LiveField pluginId={plugin.id} field={field} collect={collect} />
+            ) : field.choices && field.choices.length > 0 ? (
               <Select
                 options={field.choices.map((c) => ({ value: c, label: c }))}
                 allowClear
@@ -124,8 +136,19 @@ export default function PluginsPage() {
   const toggle = async (row: PluginRow) => {
     setBusy(row.id);
     try {
-      await post(`/api/plugins/${row.id}/${row.enabled ? "disable" : "enable"}`);
-      message.success(`${row.id} 已${row.enabled ? "停用" : "启用"}（重启后依然生效）`);
+      // 后端会说清楚「有没有写进配置文件」：写不进去（只读属性 / 被独占 /
+      // 容器只读挂载）时不能还报「重启后依然生效」——那是假话。
+      const result = await post<{ persisted?: boolean; warning?: string }>(
+        `/api/plugins/${row.id}/${row.enabled ? "disable" : "enable"}`,
+      );
+      const verb = row.enabled ? "停用" : "启用";
+      if (result?.persisted === false) {
+        message.warning(`${row.id} 已${verb}（仅本进程生效）`);
+        if (result.warning) message.warning({ content: result.warning, duration: 10 });
+      } else {
+        message.success(`${row.id} 已${verb}（重启后依然生效）`);
+        if (result?.warning) message.warning(result.warning);
+      }
       reload();
     } catch (exc) {
       message.error((exc as Error).message);

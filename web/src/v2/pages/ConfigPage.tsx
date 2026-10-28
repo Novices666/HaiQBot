@@ -1,5 +1,5 @@
 /** 配置中心：分组表单热改、vault 凭据状态、原始 TOML、快照回滚。密钥真值永不经过这里。 */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -52,6 +52,7 @@ export default function ConfigPage() {
   const cfg = usePoll<ConfigPayload>("/api/config");
   const history = usePoll<HistoryRow[]>("/api/config/history");
   const [saving, setSaving] = useState(false);
+  const [form] = Form.useForm();
 
   const groups = useMemo(() => {
     const map = new Map<string, ConfigField[]>();
@@ -67,6 +68,14 @@ export default function ConfigPage() {
     for (const field of cfg.data?.fields ?? []) out[field.path] = field.value;
     return out;
   }, [cfg.data]);
+
+  // antd 的 initialValues 只在**首次挂载**时生效，而这里是先挂载、数据后到，
+  // 所以必须在拿到 /api/config 之后显式灌一次 —— 否则整页输入框永远是空的
+  // （后端 50 个字段都带着值，问题只在前端没把它们放进表单）。
+  useEffect(() => {
+    if (!cfg.data) return;
+    form.setFieldsValue(initial);
+  }, [cfg.data, form, initial]);
 
   const save = async (values: Record<string, unknown>) => {
     const changes: Record<string, unknown> = {};
@@ -121,7 +130,7 @@ export default function ConfigPage() {
               key: "form",
               label: "字段",
               children: (
-                <Form layout="vertical" size="small" initialValues={initial} onFinish={save}>
+                <Form form={form} layout="vertical" size="small" initialValues={initial} onFinish={save}>
                   {groups.map(([label, fields]) => (
                     <Card key={label} size="small" type="inner" title={label} style={{ marginBottom: 12 }}>
                       <Row gutter={12}>

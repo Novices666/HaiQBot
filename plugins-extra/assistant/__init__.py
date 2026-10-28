@@ -35,6 +35,7 @@ from haiqbot.plugin_api import (
 from . import chat as chat_layer
 from . import image as image_layer
 from . import moderation, router
+from .models import fetch_models
 from .util import safe_detail
 
 DEFAULT_HISTORY_TURNS = 6
@@ -167,8 +168,12 @@ class Assistant(Plugin):
                 "key": "image_model",
                 "label": "生图模型",
                 "kind": "str",
-                "default": "gpt-image-1",
-                "choices": list(image_layer.IMAGE_MODELS),
+                "default": "gpt-image-2",
+                # 走接口拉：模型名会变（gpt-image-1 已经不在列表里了），
+                # 写死就会过期，而且过期不会报错，只是选不到能用的。
+                "dynamic": True,
+                "dynamic_inputs": ["image_base_url", "image_provider"],
+                "description": "从「生图 API 基地址」的 /models 实时拉取；接口不通时面板退回手填",
             },
             {
                 "key": "image_size",
@@ -210,7 +215,10 @@ class Assistant(Plugin):
                 "label": "对话模型",
                 "kind": "str",
                 "default": "deepseek-v4.1-flash",
-                "choices": list(chat_layer.CHAT_MODELS),
+                # 同上：拿对话密钥去问对话接口，别和生图那侧混用
+                "dynamic": True,
+                "dynamic_inputs": ["chat_base_url", "chat_provider"],
+                "description": "从「对话 API 基地址」的 /models 实时拉取；接口不通时面板退回手填",
             },
             {
                 "key": "chat_system_prompt",
@@ -303,6 +311,29 @@ class Assistant(Plugin):
                 "description": "auto 模式下路由返回里已带违规标记，不用再调；其他模式开启会让每条消息多一次调用",
             },
         ]
+
+    #: 动态字段 → (配置前缀, 凭据槽位)。用**对应那把**密钥去问对应那一侧：
+    #: 实测本网关的对话密钥看不到生图模型，反之亦然。
+    _MODEL_FIELDS = {
+        "chat_model": ("chat_", "chat_api_key"),
+        "image_model": ("image_", "image_api_key"),
+    }
+
+    async def config_options(self, key: str, pctx: ProviderContext) -> list[str] | None:
+        """面板「拉取模型」时现问接口：`<base_url>/models`。
+
+        为什么不写进 `config_schema()`：那张表是静态声明，每次进面板都算一遍；
+        这里要读 vault、要发 HTTP，只能按需触发（见 `Plugin.config_options`）。
+        """
+        target = self._MODEL_FIELDS.get(key)
+        if target is None:
+            return None
+        prefix, slot_name = target
+        provider = str(pctx.config.get(f"{prefix}provider") or "openai_compat").strip().lower()
+        if provider == "mock":
+            return None  # mock 不出网，让面板退回静态/手填
+        base_url = str(pctx.config.get(f"{prefix}base_url") or "").strip()
+        return await fetch_models(base_url, pctx.slot(slot_name).headers())
 
     # -- 能力提供 --------------------------------------------------------- #
 

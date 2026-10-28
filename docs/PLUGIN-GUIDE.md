@@ -283,9 +283,48 @@ class MyPlugin(Plugin):
         await ctx.reply.text(ctx.config.get("greeting", "嗨"))
 ```
 
-`kind` 取 `str` / `int` / `float` / `bool`；可选 `choices` 给下拉候选。
-值存在 `haiq.toml` 的 `[plugins.my]`，控制台改完会**就地把 `ctx.config` 更新**，
+`kind` 取 `str` / `int` / `float` / `bool`；可选 `choices` 给**静态**下拉候选。
+值存在 `data/plugins/<插件id>.toml`（扁平 key/value），控制台改完会**就地把 `ctx.config` 更新**，
 所以请在每个 handler 里现取现用（不要只在 `on_load` 里读一次）。
+
+### 可选值要现问接口？（模型列表就是这种）
+
+模型名会变，写死在 `choices` 里必然过期 —— 而且过期**不报错**，只是少几个能选的、
+多几个不存在的。这种字段用「动态可选值」声明：
+
+```python
+@classmethod
+def config_schema(cls) -> list[dict]:
+    return [
+        {"key": "base_url", "label": "基地址", "kind": "str", "default": "https://api.openai.com/v1"},
+        {
+            "key": "model",
+            "label": "模型",
+            "kind": "str",
+            "dynamic": True,  # 值要问插件（现拉）
+            "dynamic_inputs": ["base_url"],  # 拉取时把（可能还没保存的）base_url 带上
+        },
+    ]
+
+
+async def config_options(self, key: str, pctx: ProviderContext) -> list[str]:
+    if key != "model":
+        return None  # 别的字段没有动态来源
+    headers = pctx.slot("api_key").headers()  # 只能取自己声明过的凭据
+    url = str(pctx.config.get("base_url", "")).rstrip("/") + "/models"
+    ...  # 请求 → 解析出 ["m1", "m2"]
+    return ["m1", "m2"]
+```
+
+要点：
+
+- 返回值接受 `["m1", "m2"]` 或 `[{"value": "m1", "label": "模型一"}]`；返回 `None` = 没有动态来源；
+- `pctx` 和 `capabilities` 的能力工厂拿到的是同一种上下文：能读**自己的** `config`、
+  能通过 `slot(name)` 取**自己声明过的**凭据，拿不到别人的；
+- `dynamic_inputs` 里列出的键，面板会把**当前表单值**（哪怕还没保存）通过
+  `GET /api/plugins/<id>/options/<key>?base_url=...` 传进来 —— 所以不用「先保存才能拉列表」；
+- 抛异常没关系：面板会把它显示成一句红字并**退回手填输入框**（配置页不会因为网关卡死）；
+- `config_options()` 只在面板拉取时调用，别在里面做别的事（它没有 `ctx`，只能读配置和凭据）。
 
 ## 能力声明
 

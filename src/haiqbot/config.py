@@ -299,8 +299,15 @@ def _warn_misplaced_fields(raw: dict[str, Any], path: Path) -> None:
 
 
 def load_config(path: str | Path | None = None) -> HaiqConfig:
-    """从 haiq.toml 加载配置；文件不存在时返回全默认值。"""
+    """从 haiq.toml 加载配置；文件不存在时返回全默认值。
+
+    `config_path` 一律**解析成绝对路径**：面板回写配置时用的是它，如果留成
+    相对路径，写入就会跟着进程的当前目录跑 —— 换一个目录启动（NSSM 服务的
+    CWD 通常是 System32、被别的代码 chdir 过）就会变成往别处写，
+    报出来的错还是「Permission denied: 'haiq.toml'」，根本看不出在写哪儿。
+    """
     cfg_path = Path(path) if path else Path(DEFAULT_CONFIG_FILE)
+    cfg_path = cfg_path.expanduser().resolve()
     raw: dict[str, Any] = {}
     if cfg_path.is_file():
         raw = _read_toml(cfg_path)

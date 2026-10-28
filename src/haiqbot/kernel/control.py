@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import hmac
+import os
 import re
 import uuid
 from pathlib import Path
@@ -247,11 +248,16 @@ def apply_changes(runtime: Any, changes: dict[str, Any]) -> dict[str, Any]:
     warnings: list[str] = []
     # 先落盘：写盘失败就整体放弃，不留下「内存改了、文件没改」的状态
     if cfg.config_path:
+        path = Path(cfg.config_path)
         try:
-            write_config(
-                Path(cfg.config_path),
-                {_BY_PATH[p].toml_path: v for p, v in parsed.items()},
-            )
+            write_config(path, {_BY_PATH[p].toml_path: v for p, v in parsed.items()})
+        except OSError as exc:
+            # 配置中心**不做**「只改内存」的降级：这里改的就是文件本身，
+            # 假装成功会让界面上显示一个下次重启就没了的值。
+            raise ControlError(
+                f"配置写入失败，已放弃本次修改：{exc.strerror or exc}（{path}）\n{_write_hint(path, exc)}",
+                500,
+            ) from exc
         except Exception as exc:  # noqa: BLE001
             raise ControlError(f"配置写入失败，已放弃本次修改：{exc}", 500) from exc
     else:
@@ -277,10 +283,48 @@ def apply_changes(runtime: Any, changes: dict[str, Any]) -> dict[str, Any]:
     return {"changed": changed, "warnings": warnings}
 
 
-def _persist_enabled(cfg: Any, ids: list[str]) -> None:
+def _persist_enabled(cfg: Any, ids: list[str]) -> str | None:
+    """把 `[plugins].enabled` 落盘。
+
+    返回 `None` = 已写入文件；返回字符串 = **没写进去**，附带能动手的原因，
+    调用方据此降级成「只在本进程生效 + 明确告知重启会恢复」。
+
+    为什么不直接抛错：启停是面板上最常用的开关，写不进文件就让人点不动，
+    等于把一个只读属性放大成「整个插件页失效」。但也不能假装成功 ——
+    所以降级 + 把原因原样回给面板。
+    """
     if not cfg.config_path:
-        return
-    write_config(Path(cfg.config_path), {"plugins.enabled": list(ids)})
+        return "未定位到配置文件，改动只在当前进程生效（重启即丢失）"
+    path = Path(cfg.config_path)
+    try:
+        write_config(path, {"plugins.enabled": list(ids)})
+    except OSError as exc:
+        log.warning("config_write_blocked", path=str(path), error=f"{type(exc).__name__}: {exc}")
+        return (
+            f"配置写不进去（{exc.strerror or exc}）：{path}\n"
+            f"{_write_hint(path, exc)}。\n"
+            "本次启停**只在当前进程生效，重启后会恢复原状**；修好写权限后再点一次就会落盘。"
+        )
+    return None
+
+
+def _write_hint(path: Path, exc: OSError) -> str:
+    """把「写盘失败」翻译成「接下来该干嘛」。
+
+    Windows 上 `Permission denied` 的三种成因完全不同，报错却是同一句话：
+    文件带只读属性 / 账号没权限 / 文件被别的进程独占（编辑器、同步盘、杀毒），
+    外加容器里以只读方式挂载。只回一句 Errno 13 等于什么都没说。
+    """
+    reasons: list[str] = []
+    try:
+        if path.exists() and not os.access(path, os.W_OK):
+            reasons.append("文件是只读的，或当前账号没有写权限")
+        if not os.access(path.parent, os.W_OK):
+            reasons.append(f"目录 {path.parent} 不可写")
+    except OSError:
+        pass
+    reasons.append("也可能被别的进程（编辑器 / 同步盘 / 杀毒）独占，或容器里按只读挂载")
+    return "；".join(reasons)
 
 
 async def set_plugin_enabled(runtime: Any, registry: Any, pid: str, enabled: bool) -> dict[str, Any]:
@@ -294,22 +338,31 @@ async def set_plugin_enabled(runtime: Any, registry: Any, pid: str, enabled: boo
             handle = registry.handles().get(pid)
             if handle is not None:
                 return {"id": pid, "enabled": True, "loaded": True, "note": "已在运行"}
-        try:
-            _persist_enabled(runtime.config, [*enabled_ids, pid] if pid not in enabled_ids else enabled_ids)
-        except Exception as exc:  # noqa: BLE001
-            raise ControlError(f"配置写入失败，已放弃启用：{exc}", 500) from exc
+        warning = _persist_enabled(
+            runtime.config, [*enabled_ids, pid] if pid not in enabled_ids else enabled_ids
+        )
         if pid not in enabled_ids:
             enabled_ids.append(pid)
         await registry.load(pid)
-        return {"id": pid, "enabled": True, "loaded": True, "note": "已启用并加载"}
-    try:
-        _persist_enabled(runtime.config, [x for x in enabled_ids if x != pid])
-    except Exception as exc:  # noqa: BLE001
-        raise ControlError(f"配置写入失败，已放弃停用：{exc}", 500) from exc
+        return _with_warning({"id": pid, "enabled": True, "loaded": True, "note": "已启用并加载"}, warning)
+    warning = _persist_enabled(runtime.config, [x for x in enabled_ids if x != pid])
     while pid in enabled_ids:
         enabled_ids.remove(pid)
     unloaded = await registry.unload(pid)
-    return {"id": pid, "enabled": False, "loaded": False, "note": "已停用" if unloaded else "原本未加载"}
+    return _with_warning(
+        {"id": pid, "enabled": False, "loaded": False, "note": "已停用" if unloaded else "原本未加载"},
+        warning,
+    )
+
+
+def _with_warning(result: dict[str, Any], warning: str | None) -> dict[str, Any]:
+    """把「没落盘」的说明挂到结果上。面板照 warning 显示成黄色提示，不当成功糊过去。"""
+    if warning:
+        result["warning"] = warning
+        result["persisted"] = False
+    else:
+        result["persisted"] = True
+    return result
 
 
 async def reload_plugin(registry: Any, pid: str) -> dict[str, Any]:

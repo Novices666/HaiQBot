@@ -96,12 +96,27 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     print("-" * 46)
 
     # 配置
-    cfg_path = Path(args.config or DEFAULT_CONFIG_FILE)
+    cfg_path = Path(args.config or DEFAULT_CONFIG_FILE).expanduser().resolve()
     if cfg_path.is_file():
         print(f"配置：OK {cfg_path}")
     else:
-        print("配置：缺失（用默认值）")
+        print(f"配置：缺失（用默认值）：{cfg_path}")
         errors += 1
+
+    # 配置文件可写性：面板的「保存配置」和「启停插件」都要写回这个文件。
+    # 只读属性 / 无写权限 / 容器里按只读挂载时，那些按钮只会回一句 Errno 13，
+    # 所以在自检里先查出来，并给出能动手的说明。
+    resolved_cfg = cfg_path.resolve()
+    if cfg_path.is_file():
+        if os.access(cfg_path, os.W_OK):
+            print("配置可写：OK（面板能保存配置、能落盘启停）")
+        else:
+            print(f"警告：配置文件不可写，面板的保存/启停只会在内存生效：{resolved_cfg}")
+            print("      常见原因：文件带只读属性 / 当前账号没写权限 / 容器按只读方式挂载")
+            warnings += 1
+    elif not os.access(resolved_cfg.parent, os.W_OK):
+        print(f"警告：配置目录不可写：{resolved_cfg.parent}")
+        warnings += 1
 
     # 依赖
     for name in ("httpx", "structlog", "aiosqlite", "starlette", "uvicorn", "websockets"):

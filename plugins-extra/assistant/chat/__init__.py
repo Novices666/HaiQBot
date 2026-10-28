@@ -12,8 +12,6 @@ from haiqbot.plugin_api import ProviderContext
 
 from ..util import SENDER_PREFIX_NOTE
 
-CHAT_MODELS = ("deepseek-v4.1-flash", "deepseek-v4-flash", "deepseek-v4-pro", "gpt-4o-mini")
-
 #: 凭据槽位名 / 配置前缀（和 image 层同样的约定，见 image/__init__.py）
 SLOT = "chat_api_key"
 PREFIX = "chat_"

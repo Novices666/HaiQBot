@@ -696,6 +696,21 @@ class Plugin:
         """
         return []
 
+    async def config_options(self, key: str, pctx: ProviderContext) -> Any:
+        """按需算「某个配置字段有哪些可选值」（例如模型列表要现问接口）。
+
+        和 `config_schema()` 的分工：
+        - `config_schema()` 是**静态**声明（标签、类型、默认值），不碰网络；
+        - 这里是**动态**取值，会走网络/读 vault，所以只在面板点「拉取」时调用。
+
+        返回 `["a", "b"]` 或 `[{"value": "a", "label": "A（说明）"}]`；
+        返回 None / 未实现 = 该字段没有动态来源，面板沿用静态 `choices`。
+
+        `pctx` 与能力工厂拿到的是同一种上下文：能读自己的 `config`、
+        能通过 `slot(name)` 取自己声明过的凭据 —— 拿不到别人的。
+        """
+        return None
+
     def iter_matchers(self) -> list[tuple[Any, dict[str, Any]]]:
         """收集本插件所有被装饰的 handler。"""
         found: list[tuple[Any, dict[str, Any]]] = []

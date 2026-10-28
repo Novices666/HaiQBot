@@ -18,7 +18,8 @@ import {
 } from "antd";
 import { del, post } from "../../api";
 import { fmtTime, text, usePoll } from "../lib";
-import type { ChannelRow, PluginRow } from "../types";
+import ChannelPicker, { CandidateHint } from "../components/ChannelPicker";
+import type { ChannelCandidates, ChannelRow, PluginRow } from "../types";
 
 type Editable = { channel: string; enabled: boolean; plugins: string[]; note: string };
 type VerifyProblem = { channel: string; level: string; code: string; message: string };
@@ -28,6 +29,11 @@ export default function ChannelsPage() {
   const channels = usePoll<ChannelRow[]>("/api/channels");
   const plugins = usePoll<PluginRow[]>("/api/plugins");
   const verify = usePoll<VerifyPayload>("/api/channels/verify", 20000);
+  // 候选：协议端真实的群/好友 + 已配置 + 最近出现过（每 60s 刷一次够用）
+  const candidates = usePoll<ChannelCandidates>("/api/channels/candidates", 60000);
+  const [pickForm] = Form.useForm();
+  // 选了「OneBot 群」就只显示群候选，避免把 QQ 号填进群号里
+  const prefix = (Form.useWatch("prefix", pickForm) as string | undefined) ?? "onebot:group:";
   const [showDisabled, setShowDisabled] = useState(false);
   const [editing, setEditing] = useState<Editable | null>(null);
   const [saving, setSaving] = useState(false);
@@ -204,8 +210,17 @@ export default function ChannelsPage() {
         />
       </Card>
 
-      <Card size="small" title="新建 / 开启一个频道">
+      <Card
+        size="small"
+        title="新建 / 开启一个频道"
+        extra={
+          <Button size="small" onClick={() => candidates.reload()}>
+            刷新候选
+          </Button>
+        }
+      >
         <Form
+          form={pickForm}
           layout="inline"
           onFinish={(values: { prefix: string; id: string }) => {
             const channel = `${values.prefix}${values.id}`;
@@ -225,10 +240,10 @@ export default function ChannelsPage() {
           </Form.Item>
           <Form.Item
             name="id"
-            rules={[{ required: true, message: "填群号或 QQ 号" }]}
-            style={{ width: 220 }}
+            rules={[{ required: true, message: "从下拉里选，或直接填群号 / QQ 号" }]}
+            extra={<CandidateHint errors={candidates.data?.errors ?? []} total={candidates.data?.items?.length ?? 0} />}
           >
-            <Input placeholder="200000001" />
+            <ChannelPicker candidates={candidates.data?.items ?? []} prefix={prefix} />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit">

@@ -48,7 +48,23 @@ export type SchemaField = {
   default?: unknown;
   choices?: string[];
   description?: string;
+  /**
+   * 可选值要现问接口（模型列表）：`GET /api/plugins/{pid}/options/{key}`。
+   * 为真时前端忽略 `choices`，拉不到就退回手填输入框。
+   */
+  dynamic?: boolean;
+  /** 拉取时一并带上哪些（**可能还没保存**的）配置值，例如 `["chat_base_url"]`。 */
+  dynamic_inputs?: string[];
   [key: string]: unknown;
+};
+
+/** `/api/plugins/{pid}/options/{key}`：插件现算出来的可选值。 */
+export type FieldOptions = {
+  plugin: string;
+  key: string;
+  options: { value: string; label: string }[];
+  supported: boolean;
+  error?: string;
 };
 
 export type SecretSlot = {
@@ -198,6 +214,20 @@ export type ServiceInfo = {
   owner?: string | null;
   spec?: unknown;
 };
+
+/** `/api/channels/candidates`：新建频道时的候选（协议端 + 已有 + 最近出现）。 */
+export type ChannelCandidate = {
+  channel: string;
+  label: string;
+  sources: string[];
+  platform: string;
+  kind: string;
+  id: string;
+  configured: boolean;
+  enabled: boolean;
+};
+
+export type ChannelCandidates = { items: ChannelCandidate[]; errors: string[] };
 
 /** `/api/invocations/stats` 的形状：按「能力 + 状态」聚合。 */
 export type InvocationStat = {

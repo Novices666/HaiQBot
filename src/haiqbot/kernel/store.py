@@ -541,6 +541,22 @@ class Store:
         await self.db.commit()
         return (cur.rowcount or 0) > 0
 
+    async def seen_channels(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        """最近「真实出现过」的频道（审计 + 能力流水合并去重，按时间倒序）。
+
+        用途：面板新建频道时的候选。协议端离线时（或私聊这种拿不到全量列表的），
+        这是唯一可信的来源 —— 比让人手打群号靠谱得多。
+        """
+        sql = (
+            "SELECT channel, MAX(ts) AS last_ts FROM ("
+            "  SELECT channel, ts FROM audit WHERE channel IS NOT NULL AND channel != ''"
+            "  UNION ALL"
+            "  SELECT channel, ts FROM invocation WHERE channel IS NOT NULL AND channel != ''"
+            ") GROUP BY channel ORDER BY last_ts DESC LIMIT ?"
+        )
+        async with self.db.execute(sql, (max(1, int(limit)),)) as cur:
+            return [{"channel": row["channel"], "last_ts": row["last_ts"]} for row in await cur.fetchall()]
+
     # -- media 查询 --------------------------------------------------------- #
     async def media_list(self, *, plugin_id: str | None = None, limit: int = 60) -> list[dict[str, Any]]:
         sql = "SELECT * FROM media"

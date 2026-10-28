@@ -114,6 +114,34 @@ web/src/
 `GET /api/channels/verify` → `{problems, summary}`，页面顶部按 `error/warn/info` 显示红/黄/绿横幅，
 每条问题后面带「去修」直接打开该频道的编辑抽屉。
 
+## 动态可选值（模型列表）
+
+`GET /api/plugins/{pid}/options/{key}?<dynamic_inputs>=...` → `{plugin, key, options, supported, error}`
+
+模型名会变（`deepseek-v4-flash` 已下线、`gpt-image-2.5` 是新加的），所以模型字段**不写死**，
+而是让插件现问接口（`GET <base_url>/models`）。三条边界：
+
+- 只有 `config_schema` 里声明了 `dynamic: true` 的字段能问，写死的字段一律 400 `not_dynamic`；
+- 只有字段自己列出的 `dynamic_inputs` 能作为覆盖值传进来（别的 query 参数直接丢弃）；
+- 插件抛错 → 变成一句红字 + **退回手填输入框**，配置页不会因为网关卡死。
+
+前端下拉还会把「当前值」补进列表（接口没返回它时标「当前值，接口未返回」），
+避免一次保存就把模型名冲成空。实测本网关：对话密钥 8 个模型、生图密钥 4 个（两边不通用）。
+
+## 频道候选
+
+`GET /api/channels/candidates` → `{items, errors}`
+
+「新建 / 开启一个频道」的可搜索下拉框，三个来源合并去重（任一失败不影响其它）：
+
+1. 协议端 `group_list()` / `friend_list()` —— 最真实（群改名这里跟着变）；
+2. `channel_config` 里已配置过的 —— 面板要能接着改；
+3. 审计 / 能力流水里最近出现过的 —— 协议端没连上时的兜底。
+
+每项带 `sources`（来源）、`configured` / `enabled`（是否已配/已开），已配置的排前面。
+**仍允许手打群号**：新拉的群、拿不到全量列表的私聊，不能因为下拉里没有就建不了。
+`errors` 非空时页面显示「候选不全 + 原因」，不静默。
+
 ## 工作台：预演与真发是两件事
 
 | | 预演 `POST /api/workbench/parse` | 真发 `POST /api/workbench/send` |
@@ -136,6 +164,21 @@ web/src/
 
 失败一律回 502 `send_failed` 并带原始错误（例如 `MediaSendError: …`），
 不会把适配器的异常吞成 200。
+
+## 配置写不进去时（只读属性 / 被独占 / 容器只读挂载）
+
+`config_path` 一律解析成**绝对路径**：相对路径会让写入跟着进程 CWD 跑，
+报出来永远是同一句 `Permission denied: 'haiq.toml'`，看不出在写哪儿。
+
+写入失败时两种态度，刻意不同：
+
+| 场景 | 行为 |
+| :--- | :--- |
+| 插件启停（`POST /api/plugins/{id}/enable` 或 `/disable`） | 运行时照做 + 返回 `persisted: false` + `warning`（写哪个文件、可能的原因、重启会恢复），前端显示成黄色提示，**不谎称「重启后依然生效」** |
+| 配置中心保存（`POST /api/config`） | **整体放弃**，内存也不改 —— 这里改的就是文件本身，假装成功会显示一个重启后就消失的值 |
+
+失败原因会尽量翻译成人话（只读属性 / 目录不可写 / 被编辑器或同步盘独占 / 容器只读挂载），
+而不是只回一个 `[Errno 13]`。
 
 ## 已有端点在前端的落点
 

@@ -123,6 +123,45 @@ def routes(ctx: Ctx) -> list[Any]:
     async def commands(_request: Any) -> Any:
         return ok(registry.commands() if registry is not None else [])
 
+    def _declared_field(pid: str, key: str) -> dict[str, Any] | None:
+        """从插件声明的 schema 里取某个字段的声明（不存在 = 不认识的字段）。"""
+        for field in registry.config_schema(pid) if registry is not None else []:
+            if str(field.get("key") or "") == key:
+                return field
+        return None
+
+    async def field_options(request: Any) -> Any:
+        """问插件要某个字段的可选值（模型列表这类**必须现问接口**的）。
+
+        为什么不让插件在 `config_schema()` 里直接写死：那张表是静态声明，
+        每次进面板都会算一遍；而这里要读 vault、要发 HTTP，只能按需触发。
+
+        只读接口：不改任何状态，也不写审计（凭据真值永远不会出现在响应里，
+        `SecretHandle` 自己会记 `secret_plain_read`）。
+        """
+        pid = request.path_params["pid"]
+        key = request.path_params["key"]
+        if registry is None:
+            return fail(503, "no_registry", "插件系统未启动")
+        decl = _declared_field(pid, key)
+        if decl is None:
+            return fail(404, "unknown_field", f"插件 {pid} 没有声明字段 {key}")
+        if not decl.get("dynamic"):
+            return fail(
+                400,
+                "not_dynamic",
+                f"{key} 不是动态字段：它的可选值写在 config_schema 里",
+            )
+        # 只接受插件自己列出来的输入项，避免面板拿这个口子改别的参数
+        overrides: dict[str, Any] = {}
+        for name in decl.get("dynamic_inputs") or []:
+            raw = request.query_params.get(str(name))
+            if raw is None:
+                continue
+            overrides[str(name)] = raw.strip()[:500]
+        result = await registry.config_options(pid, key, overrides)
+        return ok(result)
+
     async def services(_request: Any) -> Any:
         """能力表：谁提供了什么服务、谁在消费。"""
         providers = {
@@ -148,6 +187,8 @@ def routes(ctx: Ctx) -> list[Any]:
     return [
         Route("/api/plugins", list_plugins, methods=["GET"]),
         Route("/api/plugins/{pid}", detail, methods=["GET"]),
+        # 动态可选值（模型列表这类要现问接口的）
+        Route("/api/plugins/{pid}/options/{key}", field_options, methods=["GET"]),
         Route("/api/plugins/{pid}/config", set_config, methods=["POST"]),
         Route("/api/plugins/{pid}/enable", enable, methods=["POST"]),
         Route("/api/plugins/{pid}/disable", disable, methods=["POST"]),

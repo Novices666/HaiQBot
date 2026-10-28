@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import importlib
 import inspect
@@ -23,7 +24,7 @@ from haiqbot.core.errors import ContractError, HaiqError
 from haiqbot.core.event import EventKind
 from haiqbot.kernel import plugin_sources
 from haiqbot.kernel.capabilities import IntrospectCap, build_capabilities
-from haiqbot.kernel.log import get_logger
+from haiqbot.kernel.log import get_logger, redact_text
 from haiqbot.kernel.matcher import MatchRule
 from haiqbot.kernel.plugin import (
     PLUGIN_API_VERSION,
@@ -44,6 +45,32 @@ from haiqbot.kernel.runtime import Runtime
 log = get_logger(__name__)
 
 ENTRY_GROUP = plugin_sources.ENTRY_GROUP
+
+# `config_options` 的总超时：面板点一下要等得起，也不能把 WebUI 挂住
+_OPTIONS_TIMEOUT_SECONDS = 20.0
+
+
+def _normalise_options(raw: Any) -> list[dict[str, str]]:
+    """把插件返回的可选值统一成 `[{value, label}]`。
+
+    接受两种写法：`["a", "b"]` 与 `[{"value": "a", "label": "A"}]`。
+    按 value 去重保序 —— 同一个模型被写两遍是插件的事，面板不该显示两行。
+    """
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in raw or []:
+        if isinstance(item, str):
+            value, label = item.strip(), item.strip()
+        elif isinstance(item, Mapping):
+            value = str(item.get("value") or "").strip()
+            label = str(item.get("label") or value).strip()
+        else:
+            continue
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        out.append({"value": value, "label": label or value})
+    return out
 
 
 def _provides_summary(provides: Any) -> dict[str, Any]:
@@ -637,6 +664,74 @@ class Registry:
             schema = []
         self._schemas[pid] = schema
         return schema
+
+    async def config_options(
+        self,
+        pid: str,
+        key: str,
+        overrides: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """问插件要「某个字段当前有哪些可选值」（模型列表这类要现问接口的）。
+
+        契约见 `Plugin.config_options`。四条边界：
+        1. 插件没实现 → `supported=False`，面板退回静态 `choices` / 手填；
+        2. `overrides` 是面板上**还没保存**的值（例如刚敲的 base_url），
+           合并进一份临时 config 再交给插件 —— 否则就成了「必须先保存才能拉列表」；
+        3. 异常不外抛，转成一句人话返回（过 `redact_text`，绝不带密钥）；
+        4. 有总超时：面板点一下不能等到浏览器自己断。
+        """
+        out: dict[str, Any] = {"plugin": pid, "key": key, "options": [], "supported": False}
+        try:
+            plugin_obj = self._plugin_for_options(pid)
+        except Exception as exc:  # noqa: BLE001 - 找不到插件也是「没得选」
+            out["error"] = f"插件不可用：{type(exc).__name__}: {exc}"
+            return out
+        method = getattr(plugin_obj, "config_options", None)
+        if method is None:
+            return out
+        out["supported"] = True
+
+        cfg: dict[str, Any] = dict(self.runtime.config.plugin_config.get(pid) or {})
+        for name, value in (overrides or {}).items():
+            if isinstance(value, (str, int, float, bool)) and str(name).isidentifier():
+                cfg[name] = value
+
+        pctx = ProviderContext(
+            plugin_id=pid,
+            config=cfg,
+            slots=self._slot_handles(pid, cfg, plugin_obj),
+            media=self.runtime.media,
+            log=log.bind(plugin=pid),
+        )
+        try:
+            raw = method(key, pctx)
+            if inspect.isawaitable(raw):
+                raw = await asyncio.wait_for(raw, timeout=_OPTIONS_TIMEOUT_SECONDS)
+        except TimeoutError:
+            out["error"] = f"插件 {pid} 取选项超时（>{_OPTIONS_TIMEOUT_SECONDS:.0f}s）"
+            return out
+        except Exception as exc:  # noqa: BLE001 - 网络/凭据问题都要在面板上说清
+            out["error"] = redact_text(f"{type(exc).__name__}: {exc}")
+            return out
+        out["options"] = _normalise_options(raw)
+        if raw is not None and not out["options"]:
+            out["error"] = "插件返回了空列表"
+        return out
+
+    def _plugin_for_options(self, pid: str) -> Any:
+        """拿一个能问 `config_options` 的插件对象。
+
+        已加载的直接用实例（它可能缓存了连接）；没加载就实例化一个 ——
+        `Plugin.__init__` 只做赋值，不会触发 `on_load`，代价可以忽略。
+        """
+        handle = self._handles.get(pid)
+        if handle is not None:
+            return handle.plugin
+        target, _, _ = self._import_target(pid)
+        cls = self._pick_plugin(target, pid)
+        instance = cls()
+        instance.config = dict(self.runtime.config.plugin_config.get(pid) or {})
+        return instance
 
     # -- 状态 ------------------------------------------------------------- #
     def handles(self) -> dict[str, PluginHandle]:
