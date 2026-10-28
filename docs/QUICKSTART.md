@@ -54,6 +54,10 @@ uv sync --extra dev
 
 ## 2. 给 vault 主口令（全新机器必做）
 
+> **只在本机自用、`secrets/` 不会被拷走？** 可以把 `haiq.toml` 的 `[vault] enc` 改成 `"none"`，
+> 直接跳过本节整段口令环节（代价：明文，谁读到文件谁拿到密钥）。判断标准见
+> [DEPLOY.md](DEPLOY.md) 的「要不要加密」。
+
 凭据库默认 AES-256-GCM 加密，**主口令只有一个来源：环境变量 `HAIQ_VAULT_PASSPHRASE`**
 （键名可改，见 `[vault] passphrase_ref`）。干净克隆里既没有 `secrets/vault.json`、也没有口令，所以：
 

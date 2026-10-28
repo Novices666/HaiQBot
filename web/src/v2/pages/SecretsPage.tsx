@@ -244,6 +244,12 @@ export default function SecretsPage() {
               title: "说明",
               dataIndex: "label",
               ellipsis: true,
+              render: (label: string, row) => (
+                <Space size={4}>
+                  <span>{label}</span>
+                  {row.ref === "HAIQ_WEBUI_TOKEN" ? <Tag color="gold">登录令牌</Tag> : null}
+                </Space>
+              ),
             },
             {
               title: "状态",

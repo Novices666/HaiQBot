@@ -33,6 +33,22 @@ uv run haiq secrets set assistant.image_api_key   # 生图密钥（交互式，�
 | Docker | `env_file: .env` 或 `-e HAIQ_VAULT_PASSPHRASE=...`（见 compose.yaml） |
 | Linux / systemd | `Environment=` / `EnvironmentFile=` |
 
+### 要不要加密？先选 `[vault] enc`
+
+| 值 | 适合谁 | 代价 |
+|---|---|---|
+| `aead`（默认） | 会被备份 / 云盘同步 / 多人接触的机器 | 必须管好主口令；丢了所有凭据作废；每开一个新环境都要给一次 |
+| `none` | 单机自用，`secrets/` 不会被拷走 | 明文（base64 信封）：谁读到文件谁就拿到密钥 |
+
+**加密挡的是「文件自己跑出去」**：git push、OneDrive/坚果云同步、备份 tar、打包发人、
+Docker 镜像里带上 `secrets/`。**它挡不住「人已经进了这台机器」** —— 主口令就在隔壁 `.env`，
+这正是它收益有限的原因，别为它加额外仪式。
+
+`none` 之后 **不需要任何口令包装脚本**：`.venv/bin/haiq …` 直接跑，
+`scripts/haiq.ps1` / `envpass.ps1` / `run-with-env.ps1` 都可以不用（`dev-up.ps1` 会自动跳过口令检查）。
+切换方法：把 `enc` 改成 `none`，**在还拿得到口令的时候**跑一次 `haiq secrets set <任意键>`，
+这一次写入会把整库重写成明文信封；然后确认 `haiq doctor` 显示「凭据加密：none」。
+
 **永远不要**写进 `haiq.toml`、不要放进命令行参数。口令丢了 = 现有凭据解不开，只能重新录入；
 改口令用 `haiq secrets passwd`，然后同步改上面那处。
 

@@ -4,7 +4,7 @@ haiqbot init                生成 haiq.toml 与 secrets/ 骨架
 haiq doctor              自检（依赖 / 配置 / 凭据 / 端口）
 haiq run [--demo]        启动
 haiqbot plugin list|reload|enable|disable   插件管理（有运行实例时自动转发）
-haiq webui token [--generate]        生成面板写操作令牌
+haiq webui token [--show|--generate] 面板令牌：显示 / 轮换
 haiq vault set|list|rm               凭据管理（不回显、不进 shell history）
 """
 
@@ -44,7 +44,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
     print(
         '  $env:HAIQ_VAULT_PASSPHRASE = "<自定口令>"   # vault 是 aead 时必需（Windows PowerShell）\n'
         "  haiq secrets set HAIQ_IMAGE_API_KEY        # 密钥：交互输入、不回显\n"
-        "  haiq webui token --generate                # 生成面板令牌（只打印一次）\n"
+        "  haiq webui token --generate                # 生成面板令牌（之后可用 --show 再看）\n"
         "  haiq doctor                                # 自检\n"
         "  haiq run                                   # 起服务（面板 http://127.0.0.1:8080）\n"
         "  haiq run --demo                            # 不连 QQ 的演示，跑完即退"
@@ -737,9 +737,22 @@ def _cmd_webui(args: argparse.Namespace) -> int:
         print("   复制到面板顶部的「写操作令牌」输入框即可。此处只显示这一次。")
         return 0
 
+    if getattr(args, "show", False):
+        if not current:
+            print(f"× {ref} 未设置 —— 先运行 `haiq webui token --generate`")
+            return 1
+        print(f"✅ 现有令牌（{ref}）：")
+        print("")
+        print(f"   {current}")
+        print("")
+        print("   复制到面板登录页的「令牌」框即可。")
+        print("   确实要换新的才用 --generate —— 那会让旧令牌与所有已登录会话立即失效。")
+        return 0
+
     if current:
-        print(f"✅ {ref} 已设置（{len(current)} 字符，不回显）")
-        print("   忘了就用 `haiq webui token --generate` 重新生成")
+        print(f"✅ {ref} 已设置（{len(current)} 字符）")
+        print("   看明文：haiq webui token --show")
+        print("   换新的：haiq webui token --generate（旧令牌与所有已登录会话立即失效）")
         return 0
     print(f"× {ref} 未设置 —— 面板写操作目前不可用（403）")
     print("   生成：haiq webui token --generate")
@@ -1165,6 +1178,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_webui = sub.add_parser("webui", help="面板写操作令牌")
     p_webui.add_argument("action", choices=["token"], nargs="?", default="token")
     p_webui.add_argument("--generate", action="store_true", help="生成新令牌并写入 vault")
+    p_webui.add_argument("--show", action="store_true", help="显示现有令牌（不轮换）")
     p_webui.set_defaults(func=_cmd_webui)
 
     p_vault = sub.add_parser("vault", help="凭据管理")

@@ -138,7 +138,7 @@ function Login({ onDone }: { onDone: (s: Session) => void }) {
 
         <Typography.Paragraph type="secondary" style={{ marginBottom: 20 }}>
 
-          粘贴面板令牌：忘了就运行 haiq webui token --generate 重新生成（旧令牌立即失效，不用重启）。
+          粘贴面板令牌。在运行 haiqbot 的机器上执行 haiq webui token --show 取令牌；确实要换新的才用 --generate（旧令牌与所有会话立即失效，不用重启进程）。
 
         </Typography.Paragraph>
 

@@ -159,7 +159,9 @@ if (-not $SkipBot) {
         Ok "已经在跑（WebUI $webuiPort 有响应），跳过启动"
     }
     else {
-        if (-not (Get-VaultPass -Root $root)) {
+        # 凭据库不加密（[vault] enc = "none"）时，本来就不需要主口令
+        $plainVault = (Select-String -Path $cfg -Pattern '^\s*enc\s*=\s*"none"' -Quiet)
+        if (-not $plainVault -and -not (Get-VaultPass -Root $root)) {
             Write-VaultPassHint
             exit 1
         }
