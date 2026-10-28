@@ -224,3 +224,65 @@ def test_doctor_reports_passphrase_source(tmp_path: Path, monkeypatch, capsys) -
     out = capsys.readouterr().out
     assert "没拿到 vault 主口令" in out
     assert ".env" in out
+
+
+def _assistant_cfg(tmp_path: Path, **plugin_config) -> HaiqConfig:
+    cfg = HaiqConfig(
+        data_dir=tmp_path / "data",
+        db_path=tmp_path / "data" / "haiq.db",
+        secrets_dir=tmp_path / "secrets",
+        vault=VaultCfg(enc="none"),
+        webui=WebuiCfg(enabled=False, write_enabled=False),
+        plugins_enabled=["assistant"],
+        plugin_dirs=[Path("plugins"), Path("plugins-extra")],
+    )
+    cfg.plugin_config = {"assistant": plugin_config} if plugin_config else {}
+    return cfg
+
+
+def test_doctor_flags_factory_default_base_url(tmp_path: Path, capsys) -> None:
+    """新机器上 data/plugins/<id>.toml 不存在 → 地址取出厂默认值 → 用第三方密钥必 401。
+
+    这是「部署后对话失效」最常见的原因，必须在 doctor 里一眼看见。
+    """
+    from haiqbot.cli import _doctor_plugin_endpoints
+
+    warnings = _doctor_plugin_endpoints(_assistant_cfg(tmp_path))
+    out = capsys.readouterr().out
+
+    assert warnings >= 2, "chat/image 两个 base_url 都还是默认值"
+    assert "chat_base_url" in out
+    assert "api.openai.com" in out
+    assert "插件接口：" in out, "生效值要打出来，否则没法核对"
+
+
+def test_doctor_is_quiet_when_base_url_is_configured(tmp_path: Path, capsys) -> None:
+    from haiqbot.cli import _doctor_plugin_endpoints
+
+    cfg = _assistant_cfg(
+        tmp_path,
+        chat_base_url="https://gw.example.com/v1",
+        image_base_url="https://gw.example.com/v1",
+    )
+    warnings = _doctor_plugin_endpoints(cfg)
+    out = capsys.readouterr().out
+
+    assert warnings == 0
+    assert "https://gw.example.com/v1" in out
+
+
+def test_doctor_warns_when_provider_is_mock(tmp_path: Path, capsys) -> None:
+    """provider=mock 不出网，只回固定内容 —— 看起来像「机器人变傻了」。"""
+    from haiqbot.cli import _doctor_plugin_endpoints
+
+    cfg = _assistant_cfg(
+        tmp_path,
+        chat_provider="mock",
+        chat_base_url="https://gw.example.com/v1",
+        image_base_url="https://gw.example.com/v1",
+    )
+    warnings = _doctor_plugin_endpoints(cfg)
+    out = capsys.readouterr().out
+
+    assert warnings == 1
+    assert "mock" in out

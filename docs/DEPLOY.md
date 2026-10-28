@@ -335,6 +335,21 @@ public_base_url = "https://bot.example.com"
 （容器里的 `127.0.0.1` 不是宿主机，见 C.2）；③ 两侧 `access_token` 一致；
 ④ `haiq doctor` 看有没有代理告警。协议端自身怎么登录，看它自己的文档。
 
+**Q: 部署到新机器后，`@机器人` / `/问` 不回话了？**
+先跑 `haiq doctor`，看新加的那行 `插件接口：...`。最常见的原因是
+**`data/plugins/<插件id>.toml` 根本不存在**（`data/` 不入库），于是参数全取出厂默认值：
+`base_url = https://api.openai.com/v1` 配着某家第三方网关的密钥 → 请求被对方 401，
+群里只会看到「对话失败：ProviderError: 对话接口返回 401」。
+按顺序核对三件事：
+
+1. `插件接口：assistant.chat_base_url=...` 是不是你的网关地址（不是 `api.openai.com`）；
+2. `assistant.chat_model` 是不是该网关有的模型名（面板「插件与能力 → assistant → 配置」
+   里的下拉是**现拉接口**的，能选到就说明地址与密钥都对）；
+3. `assistant.chat_provider` / `image_provider` 不是 `mock`（mock 不出网，只回固定内容）。
+
+另外两个「不回话」的原因不带报错：**频道开关默认全关**（`haiq channels verify` 看一眼），
+以及 `@机器人` 之外的消息本来就不会触发对话。
+
 **Q: `/画图` 之后很久没动静，或者审计里看到 `assistant` 的相关失败？**
 OneBot 路线两个已知坑，都已在代码里修掉，若从旧版本升级请确认没跑着旧进程：
 1. **事件死锁** —— 收包循环 inline await 事件处理，处理里又要 `send_group_msg` 等回包，

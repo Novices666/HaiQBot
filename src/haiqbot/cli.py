@@ -86,6 +86,68 @@ def _doctor_channels(cfg: object) -> tuple[int, list[dict]]:
     return asyncio.run(run())
 
 
+#: 这些是插件 schema 里写死的**出厂默认地址**。用第三方网关的密钥配着它们，
+#: 请求必然被对方拒 —— 而面板上看起来「配置齐全」，所以特别难自查。
+_OFFICIAL_BASE_URL_HINTS = ("api.openai.com", "api.anthropic.com")
+
+
+def _doctor_plugin_endpoints(cfg: object) -> int:
+    """打印各插件「接口地址 / 模型 / provider」的**生效值**，并点出明显错配。
+
+    只看插件自己声明的 `config_schema()`，不写死任何插件名 —— 内核不该认识具体插件。
+    返回警告数。
+
+    为什么值得单独一段：部署到新机器后 `data/plugins/<id>.toml` 是不存在的
+    （`data/` 不入库），于是所有参数都取出厂默认值 —— 最典型的就是
+    `base_url = https://api.openai.com/v1` 配着某家第三方网关的密钥，
+    表现是「对话/出图直接失败」，日志里只有一句 401。
+    """
+    from haiqbot.kernel.plugin_sources import iter_plugin_classes
+
+    warnings = 0
+    enabled = list(getattr(cfg, "plugins_enabled", None) or [])
+    all_config = getattr(cfg, "plugin_config", {}) or {}
+    printed: list[str] = []
+
+    for cls in iter_plugin_classes(cfg):
+        pid = str(getattr(cls, "id", "") or "")
+        if not pid or pid not in enabled:
+            continue
+        try:
+            schema = list(cls.config_schema())  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - 插件自己写坏不该让 doctor 崩掉
+            continue
+        current = all_config.get(pid) or {}
+        for field in schema:
+            key = str(field.get("key") or "")
+            if not key.endswith(("_base_url", "_model", "_provider")):
+                continue
+            default = field.get("default")
+            value = current.get(key, default)
+            if value in (None, ""):
+                continue
+            # `moderate_input_model` 这类是开关而不是模型名：只认字符串值
+            if not isinstance(value, str):
+                continue
+            printed.append(f"{pid}.{key}={value}")
+
+            if key.endswith("_provider") and str(value).strip().lower() == "mock":
+                print(f"警告：{pid}.{key} = mock —— 不出网、返回固定内容（调试用）")
+                print("      要真接模型，把 provider 改回 openai_compat")
+                warnings += 1
+            elif key.endswith("_base_url"):
+                same_as_default = str(value).strip().rstrip("/") == str(default or "").strip().rstrip("/")
+                if same_as_default and any(h in str(value) for h in _OFFICIAL_BASE_URL_HINTS):
+                    print(f"警告：{pid}.{key} 还是出厂默认值 {value}")
+                    print("      如果你用的是第三方网关的密钥，这里不改就会 401/404")
+                    print("      （面板：插件与能力 → 该插件 → 配置；或改 data/plugins/<id>.toml 后重启）")
+                    warnings += 1
+
+    if printed:
+        print("插件接口：" + "；".join(printed))
+    return warnings
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     """环境自检。退出码：0 = 全绿 / 1 = 有警告 / 2 = 有错误。"""
     cfg = load_config(args.config)
@@ -301,6 +363,12 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             warnings += 1
     except Exception as exc:  # noqa: BLE001 - 体检失败不该让 doctor 崩
         print(f"插件来源：检查失败（{type(exc).__name__}: {exc}）")
+        warnings += 1
+    # 插件接口（地址 / 模型 / provider）：新机器上参数全取出厂默认值，最容易「配了却连通不了」
+    try:
+        warnings += _doctor_plugin_endpoints(cfg)
+    except Exception as exc:  # noqa: BLE001 - 体检失败不该让 doctor 崩
+        print(f"插件接口：检查失败（{type(exc).__name__}: {exc}）")
         warnings += 1
 
     # 频道开关（默认全关）：最容易踩的坑是"配了却不生效"
