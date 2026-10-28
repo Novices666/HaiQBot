@@ -140,7 +140,10 @@ docker compose logs -f haiqbot
 **两个目录缺一个，对应的插件就整组消失，而且没有任何报错**。镜像里已经 `COPY`
 了这两份，挂载又各覆盖一次（为了改插件不用重建镜像）。
 
-镜像以 uid 10001（非 root）运行：`data/`、`secrets/` 在宿主上要对它可写。
+镜像以 uid 10001（非 root）运行：`data/`、`secrets/`、**以及 `haiq.docker.toml` 本身**
+在宿主上都要对它可写。最后一个最容易漏 —— bind mount 保留宿主属主，文件是
+`你:你 644` 的话容器用户写不进去，面板「停用插件 / 保存配置」就会报
+`Permission denied: 'haiq.toml'`（容器里那个路径就是它）。修法见 C.4。
 
 面板 `http://127.0.0.1:8080`，只绑本机。
 
@@ -231,6 +234,61 @@ docker compose up -d --build haiqbot     # 改了代码、Dockerfile 或插件
 docker compose restart haiqbot           # 只改了 .env
 docker compose down                      # data/ 与 secrets/ 在宿主上，不会丢
 ```
+
+### C.4 更新到新版本（git pull）
+
+代码分三层，更新代价不一样 —— 知道这个就不用每次都重建：
+
+| 改了什么 | 怎么生效 |
+|---|---|
+| `src/`（内核 / WebUI 后端 / 前端构建产物 `dist/`） | **必须重建镜像**（`dist/` 是打在镜像里的） |
+| `plugins/`、`plugins-extra/` | 这两个目录是 bind mount，重启容器即可 |
+| `.env`、`haiq.docker.toml` | 重启容器（配置只在进程启动时读一次） |
+| `data/`、`secrets/` | 不用动 |
+
+标准流程：
+
+```bash
+cd /path/to/HaiQBot
+
+# 0) 先看这版动了什么。特别注意 haiq.docker.toml：它是**被跟踪**的文件，
+#    你本地改过它、而这版又恰好改了它，pull 会直接拒绝。
+#    （.env 在 .gitignore 里，永远不会冲突，不用管。）
+git fetch origin
+git diff --stat HEAD origin/main
+
+# 1) 只有上面列表里出现 haiq.docker.toml、且你本地也改过它时才需要这一步
+git stash push -m "local config" haiq.docker.toml
+
+# 2) 拉代码（--ff-only：宁可报错，也不要一个意外的 merge commit）
+git pull --ff-only
+
+# 3) 上一步做过 stash 就放回来，并把模板里新增的键手动合进去
+#    （没 stash 过会提示 "No stash entries found"，忽略即可）
+git stash pop
+
+# 4) 重建 + 重启 + 自检
+docker compose up -d --build haiqbot
+docker compose logs -f haiqbot                                        # 看到 haiqbot_ready
+curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/      # 期望 200
+docker compose exec haiqbot haiq doctor                               # 全绿即可
+```
+
+面板是单页应用，更新后**浏览器要 Ctrl+F5 强刷**，否则还在跑旧 bundle。
+
+**容器里写不进配置**（`Permission denied: 'haiq.toml'`）：容器以 uid 10001 运行，
+而 `haiq.docker.toml` 是 bind mount（保留宿主属主）。你 `own:own 644` 它就写不进去：
+
+```bash
+ls -l haiq.docker.toml                    # 看属主与权限
+sudo chown 10001:10001 haiq.docker.toml   # 换成容器用户（之后编辑要用 sudo 或走面板）
+# 或者不换属主，只放开写权限（更省事，但本机任何用户都能改）：
+chmod 666 haiq.docker.toml
+docker compose exec haiqbot haiq doctor   # 应打印「配置可写：OK」而不是警告
+```
+
+面板写不进去时**不会假装成功**：启停插件会回「仅本进程生效，重启后恢复原状」，
+配置中心保存则整条拒绝 —— 看到这两种提示，回来修权限。
 
 ---
 
