@@ -107,3 +107,55 @@ def test_broken_plugin_config_file_is_skipped(tmp_path: Path, monkeypatch: pytes
     cfg = load_config(tmp_path / "haiq.toml")
     assert cfg.plugin_config == {}
     assert any(event == "plugin_config_unreadable" for event, _ in sink.events)
+
+
+# --------------------------------------------------------------------------- #
+# 容器部署：HAIQ_DATA_DIR 覆盖 data_dir 时，**读**必须和**写**指向同一个文件
+# --------------------------------------------------------------------------- #
+def _container_like(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    """造出容器的形状：主 toml 里 data_dir 是相对路径，实际数据目录靠环境变量指。
+
+    容器里 `haiq.docker.toml` 写 `data_dir = "data"`（相对），而
+    `HAIQ_DATA_DIR=/data` 才是真落点；并且 `.dockerignore` 排除了 `data/`，
+    所以镜像里 `/app/data` **不存在**。
+    """
+    cfg_dir = tmp_path / "app"
+    cfg_dir.mkdir()
+    cfg = cfg_dir / "haiq.toml"
+    cfg.write_text('data_dir = "data"\n[plugins]\nenabled = ["demo"]\n', encoding="utf-8")
+    # 容器的工作目录里没有 ./data —— 这正是镜像的真实情况
+    monkeypatch.chdir(cfg_dir)
+    data = tmp_path / "volume"
+    monkeypatch.setenv("HAIQ_DATA_DIR", str(data))
+    return cfg, data
+
+
+def test_reads_plugin_config_from_env_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """回归：环境变量覆盖晚于插件配置读取 → 面板保存的东西重启后变回默认值。
+
+    实测症状（容器里）：面板保存生图/对话参数成功、`/data/plugins/*.toml` 里也确实
+    写进去了，但一重启容器就全没了 —— 因为启动时按**覆盖前**的相对 `data`
+    去 CWD 下找 `/app/data/plugins/`（不存在），读到空 dict，插件回落到默认值。
+    """
+    cfg, data = _container_like(tmp_path, monkeypatch)
+    target = plugin_config_file(data, "demo")
+    target.parent.mkdir(parents=True)
+    target.write_text('model = "from-env-dir"\n', encoding="utf-8")
+
+    loaded = load_config(cfg)
+
+    assert loaded.plugin_config.get("demo") == {"model": "from-env-dir"}, "读必须跟环境变量走"
+
+
+def test_plugin_config_read_and_write_paths_agree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """不变量：读的位置 == 写的位置（面板写的文件和启动读的文件必须是同一个）。"""
+    cfg, data = _container_like(tmp_path, monkeypatch)
+    target = plugin_config_file(data, "demo")
+    target.parent.mkdir(parents=True)
+    target.write_text("retries = 2\n", encoding="utf-8")
+
+    loaded = load_config(cfg)
+
+    assert loaded.plugin_config.get("demo") == {"retries": 2}
+    # 面板保存时用的是 runtime.config.data_dir，它必须指回同一个目录
+    assert plugin_config_file(loaded.data_dir, "demo") == target

@@ -313,16 +313,25 @@ def load_config(path: str | Path | None = None) -> HaiqConfig:
         raw = _read_toml(cfg_path)
         _warn_misplaced_fields(raw, cfg_path)
 
+    # 环境变量覆盖必须**在所有派生路径之前**做：
+    # `data_dir` 决定三处落点 —— `data/plugins/<id>.toml`（插件参数）、
+    # `haiq.db`、`data/media`。容器里 HAIQ_DATA_DIR=/data 覆盖它，
+    # 但 `data_dir` 在 toml 里写的是相对路径 `data`；一旦顺序颠倒，
+    # 读插件参数会用 CWD 下的 `data`（容器里 = /app/data，被 .dockerignore 排除，
+    # 根本不存在），写却写进 /data —— 于是「面板保存成功、重启后全是默认值」。
+    raw = _env_override(raw)
+    data_dir_hint = Path(raw.get("data_dir") or "data")
+
     # [plugins.<id>] 与顶层 plugins_enabled 分开存放
     plugins_table = raw.pop("plugins", {}) or {}
     if isinstance(plugins_table, dict):
         enabled = plugins_table.pop("enabled", None)
         if isinstance(enabled, list):
             raw["plugins_enabled"] = enabled
-        # 插件配置的主位置是 `data/plugins/<id>.toml`；主 toml 里的 `[plugins.<id>]`
+    # 插件配置的主位置是 `data/plugins/<id>.toml`；主 toml 里的 `[plugins.<id>]`
     # 只作为历史兼容（文件优先）。这样卸载插件 = 删目录 + 删一个文件，
     # 主配置永远只剩两行注册信息。
-    file_cfg = _load_plugin_config_files(Path(raw.get("data_dir") or "data"))
+    file_cfg = _load_plugin_config_files(data_dir_hint)
     for _pid in sorted(set(plugins_table) - set(file_cfg)):
         log.warning(
             "plugin_config_inline_deprecated",
@@ -331,7 +340,6 @@ def load_config(path: str | Path | None = None) -> HaiqConfig:
         )
     raw["plugin_config"] = {**plugins_table, **file_cfg}
 
-    raw = _env_override(raw)
     moved = _absorb_legacy_sections(raw)
     if moved and cfg_path.is_file():
         try:
