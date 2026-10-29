@@ -33,7 +33,7 @@
 | **双通道** | OneBot v11（client / server / http / sse 四种模式）+ 官方 QQ OpenAPI，同一套插件代码 |
 | **能力协商** | 插件不写 `if platform == "qq"`，按目标平台能力自动降级（发图 → 发链接 → 文本提示） |
 | **凭据隔离** | AES-256-GCM（scrypt 派生）+ 可轮换主口令；插件只能拿 `SecretHandle`，拿不到明文 |
-| **频道开关** | 默认全关，按群按功能粒度开启；内置体检能识别 5 类「配了却不生效」 |
+| **频道开关** | 默认全关，按群按功能粒度开启；内置体检按 10 个判定码点出「配了却不生效」 |
 | **限流与风控** | 出站闸门（每群间隔 + 全局每分钟）、每用户/每群配额、幂等去重、刷屏拦截 |
 | **控制台** | 8 个页面 + 插件可自注册页面（声明式 schema，不注入 JS） |
 | **可观测** | 结构化脱敏日志（SSE 实时推送）、审计流水、调用统计、媒体库 |
@@ -172,7 +172,7 @@ haiq plugin disable <id>
 
 三道硬边界：
 
-1. **内核不认识插件** —— 没有 `if plugin_id == "painter"`，只有规则与服务契约。
+1. **内核不认识插件** —— 没有 `if plugin_id == "assistant"`，只有规则与服务契约。
 2. **插件不认识平台** —— 能力协商 + 自动降级，插件里没有平台分支。
 3. **插件不认识密钥** —— 只有槽位句柄，真值在 vault。
 
@@ -200,10 +200,13 @@ haiq doctor                      # 自检（有问题会直接说，退出码 1/
 haiq run [--demo]                # 启动
 haiq channels list|verify|enable|disable [targets...]   # 频道开关（应急入口）
 haiq jobs list|add|enable|disable|rm                    # 定时任务（应急入口）
-haiq secrets list|set|rm|export|passwd                  # 凭据管理
-haiq plugin list|reload|enable|disable <id>             # 插件管理
-haiq webui token [--generate]                           # 面板令牌
+haiq secrets list|set|rm|export|reencrypt|passwd            # 凭据管理
+haiq plugin list|new|reload|enable|disable <id>            # 插件管理（new = 生成骨架）
+haiq webui token [--generate]                              # 面板令牌
 ```
+
+`haiq vault` 是 `haiq secrets` 的旧名，留着兼容；`set`/`list`/`rm` 之外的新东西
+（`passwd` / `reencrypt` / 槽位名）只在 `secrets` 下。
 
 `channels` / `jobs` 只依赖数据库，**服务没跑也能管理** —— 这是面板挂掉时的兜底。
 
@@ -215,7 +218,7 @@ haiq webui token [--generate]                           # 面板令牌
 | 官方 OpenAPI 通道 | ⚠️ 代码层面已适配（失败语义 / 健康度 / actions 声明都有单测），**从未真机验证**（缺 AppID/AppSecret） |
 | 随仓库插件 | ✅ 框架最小集 echo / help；自有 assistant / guard / admin |
 | 控制台 8 页 + 插件页 | ✅ 真实 Chromium 点过一遍，console 零错误 |
-| 测试 | 708 passed；`ruff check` / `format` 全绿 |
+| 测试 | 774 passed；`ruff check` / `format` 全绿 |
 | 图片发送 | ⚠️ 偶发 `rich media transfer failed`；宿主机开着系统代理时必失败 |
 | 面板内重启/停机 | ❌ 未做（需要进程守护，否则退出后没人拉起） |
 | 子进程隔离 | ❌ 未做（插件一律 inline 加载，`isolation` 目前只是声明） |
@@ -224,7 +227,7 @@ haiq webui token [--generate]                           # 面板令牌
 
 ```bash
 uv sync --extra dev
-uv run pytest -q                 # 708 passed
+uv run pytest -q                 # 774 passed
 uv run ruff check . && uv run ruff format --check .
 uv run haiq run --demo           # 不连 QQ 的本地演示
 ```

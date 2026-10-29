@@ -195,7 +195,7 @@ OneBot 侧的翻译点只有一个：`adapters/onebot11.py::_check_response()` �
 | `haiqbot/kernel/vault.py` | 装配链只有 `env → secrets/vault.json`(aead)；旧 `vault.bin` 迁移与测试 fixture 各留一个后端 |
 | `haiqbot/kernel/jobs.py` | 持久化定时任务（interval / daily，动作白名单） |
 | `haiqbot/kernel/secret_index.py` | 凭据槽位索引（CLI 与面板共用） |
-| `haiqbot/kernel/channel_control.py` | 频道开关读写与体检（识别 5 类静默失效） |
+| `haiqbot/kernel/channel_control.py` | 频道开关读写与体检（10 个判定码，其中 7 类 error/warn 会真的不响应） |
 | `haiqbot/kernel/log_ring.py` | 面板日志环形缓冲（先脱敏再入缓冲） |
 | `plugins-extra/assistant/image/broker.py` | 唯一生图出网口（`image:generate` 的提供者） |
 | `plugins-extra/assistant/chat/broker.py` | 唯一对话出网口（`llm:chat` 的提供者） |

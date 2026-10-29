@@ -136,6 +136,20 @@ docker compose logs -f haiqbot
 | `./haiq.docker.toml` | `/app/haiq.toml` | 容器版配置（**不能加 `:ro`**，面板保存要写它） |
 | `.env` | 进程环境（`env_file`） | `HAIQ_VAULT_PASSPHRASE` |
 
+`data_dir` 是**状态根**：`haiq.db`、`media/`、`plugins/`（插件参数）都从它派生。
+容器里它由 `HAIQ_DATA_DIR=/data` 覆盖，于是三者分别是 `/data/haiq.db`、
+`/data/media/`、`/data/plugins/<插件id>.toml` —— 都在 `./data` 卷里，重建容器不会丢。
+
+能用的环境变量（都可选，不写就用 toml 里 / 默认值）：
+
+| 变量 | 覆盖什么 | 说明 |
+|---|---|---|
+| `HAIQ_VAULT_PASSPHRASE` | `[vault] passphrase_ref` 指向的口令 | **必需**（`enc = "aead"` 时）。只从环境变量读，不读 `.env`（读 `.env` 的是启动器） |
+| `HAIQ_DATA_DIR` | `data_dir` | 容器镜像里定成 `/data`。别指到卷外，否则重启即丢 |
+| `HAIQ_SECRETS_DIR` | `secrets_dir` | 容器里是 `/secrets` |
+| `HAIQ_LOG_LEVEL` | `log_level` | 排障时改 `DEBUG` |
+| `HAIQ_LOG_JSON` | `log_json` | `1` / `true` / `yes` / `on` 打开 JSON 行日志 |
+
 `plugin_dirs = ["plugins", "plugins-extra"]` 按容器内的 `WORKDIR /app` 解析 ——
 **两个目录缺一个，对应的插件就整组消失，而且没有任何报错**。镜像里已经 `COPY`
 了这两份，挂载又各覆盖一次（为了改插件不用重建镜像）。
@@ -376,6 +390,20 @@ public_base_url = "https://bot.example.com"
 （容器里的 `127.0.0.1` 不是宿主机，见 C.2）；③ 两侧 `access_token` 一致；
 ④ `haiq doctor` 看有没有代理告警。协议端自身怎么登录，看它自己的文档。
 
+**Q: 面板里保存的生图 / 对话参数，一重启容器就变回默认值？**
+插件参数写的是 `<data_dir>/plugins/<插件id>.toml`，容器里 = `/data/plugins/<id>.toml`。
+旧版在这里有个真 bug：**启动时读插件参数用的是环境变量覆盖之前的 `data_dir`**
+（toml 里写的是相对路径 `data`，于是去 `/app/data/plugins/` 找 —— 镜像里没有这个目录，
+`.dockerignore` 把 `data/` 排除了），而**写**却写进 `/data`。读和写不是同一个文件，
+于是「面板提示保存成功、`/data/plugins/*.toml` 里也真有值，重启后却全是默认值」。已修复：
+现在读、写、`haiq.db`、`media/` 全部跟同一个 `data_dir` 走。
+再遇到这类症状，按三步查：
+
+1. `docker compose exec haiqbot haiq doctor | grep 数据目录` —— 是不是 `/data`；
+2. 宿主上 `data/plugins/<插件id>.toml` 里有没有你保存的那个值；
+3. 日志里搜 `plugin_config_unreadable`（文件在但读不动：权限 / 编码），
+   或 `plugin_config_inline_deprecated`（值还写在主 toml 的 `[plugins.<id>]` 里）。
+
 **Q: 部署到新机器后，`@机器人` / `/问` 不回话了？**
 先跑 `haiq doctor`，看新加的那行 `插件接口：...`。最常见的原因是
 **`data/plugins/<插件id>.toml` 根本不存在**（`data/` 不入库），于是参数全取出厂默认值：
@@ -565,16 +593,21 @@ serve_port = 8090                          # 只读媒体服务，默认 0（关
 haiq channels verify        # 有 error 时退出码 1
 ```
 
-它会点出「配了却不生效」的六类问题：
+它会点出「配了却不生效」。判定码共 **10 个**：其中 7 个 error/warn 意味着**真的不响应**，
+3 个 info 只是提示（不影响功能）。
 
 | 代码 | 级别 | 含义 |
 |---|---|---|
 | `unknown_plugin` | error | 频道里写的插件 id 连目录/包都找不到 |
 | **`plugin_not_enabled`** | error | **插件在磁盘上，但没写进 `[plugins] enabled` —— 永远不会被加载** |
 | `unknown_feature` | error | 插件没有声明这个 feature |
+| `bad_target` | error | 写法不合法（例：`assistant:` 冒号后面是空的） |
+| `enabled_plugin_missing` | error | 全局：`[plugins] enabled` 里的名字找不到对应插件 |
 | `nothing_enabled` | warn | `enabled=1` 但功能列表为空 |
+| `plugin_declares_no_feature` | warn | 写了 `插件:功能`，但该插件一个 feature 都没声明 |
+| `channel_disabled` | info | `enabled=0`：整条频道关闭，列表里的功能也不响应 |
 | `always_on` | info | `always` 插件写进名单里是多余的 |
-| **`plugin_disabled` / `enabled_plugin_missing`** | info / error | 全局视角：哪些插件没启用、哪些启用名根本不存在 |
+| `plugin_disabled` | info | 全局：插件在磁盘上但没进 `enabled`，任何频道都不会响应 |
 
 第二行是最常见的坑：目录建了、频道也勾了，唯独忘了 `enabled` —— 表现是**完全静默**。
 启动日志也会打一条 `plugins_discovered_but_disabled` 把它点出来。

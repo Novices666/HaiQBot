@@ -187,7 +187,7 @@ async def draw(self, ctx, prompt: str): ...
 
 | 入口 | 装饰器 | 上下文 |
 |---|---|---|
-| `@机器人 我叫小明` | `@on_message(require_at=True, priority=-30, block=True)` | **带历史**：保留最近 `history_turns` 轮（1 轮 = 一问一答），超出的丢弃 |
+| `@机器人 我叫小明` | `@on_message(require_at=True, priority=-30, block=True)` | **带历史**：保留最近 `chat_history_turns` 轮（1 轮 = 一问一答），超出的丢弃 |
 | `/问 我叫什么` | `@on_command("问", aliases=["ask"])` | **不带历史**：单轮问答，说完就忘 |
 | `/重置对话` | `@on_command("重置对话")` | 清掉该会话的历史 |
 
@@ -199,7 +199,7 @@ async def draw(self, ctx, prompt: str): ...
 - 历史存在 `ctx.kv` 里，key 是 `hist:{channel}:{actor}` —— **按频道和用户分开**，
   群里 A 的上下文不会串到 B；
 - 只在 `use_history=True` 的路径上 `_remember()`，单轮入口不写库；
-- `history_turns` 是面板可调的配置项，`0` 表示完全不带上下文。
+- `chat_history_turns` 是面板可调的配置项，`0` 表示完全不带上下文。
 
 > `require_at` 依赖适配器把「是否 @ 了机器人」算出来（OneBot 侧扫消息段的 `at` 并比对 `self_id`）。
 > 如果协议端只上报纯文本、没有消息段，`require_at` 永远不会命中 —— 这时改用 `/命令` 入口。
@@ -255,14 +255,30 @@ async def draw(self, ctx: Context, prompt: str = "") -> None: ...
 - feature 名是**数据契约**：改名会让老配置失效，`haiq channels verify` 报 `unknown_feature`；
 - 同一插件里可以复用（`/问` 和 `@机器人` 都归 `ask`）。
 
+例外：**治理类插件不该被频道开关关掉**。把 `always` 写在 Plugin 的**类属性**上 ——
+不是 `plugin.toml` 字段，内核读的是类的 `gating`：
+
+```python
+class Guard(Plugin):
+    id = "guard"
+    gating = "always"  # 只有两种值：opt_in（默认）/ always
+```
+
+代价要看清：`always` 在**任何**频道都生效，包括从没配置过的新群。所以只有
+「不限制反而不安全」（风控、审计）的插件才配用它。参考实现：
+`plugins-extra/guard/__init__.py`。
+
 ## 在控制台里配置你的插件
 
-插件参数落在**插件自己的文件**：data/plugins/<插件id>.toml（扁平 key/value）。
+插件参数落在**插件自己的文件**：`<data_dir>/plugins/<插件id>.toml`（扁平 key/value）。
+默认 `data_dir` 是 `data/`；容器里由 `HAIQ_DATA_DIR=/data` 覆盖，文件就跟着变成
+`/data/plugins/<插件id>.toml` —— **读和写用的是同一个值**，所以面板保存的东西重启后还在。
 主 haiq.toml 只留注册信息（plugin_dirs + [plugins] enabled），所以：
 
 - 卸载插件 = 删目录 + 删一个文件，主配置不用动；
 - 默认值只有一处来源（你的 config_schema()），文件里只写「覆盖过的值」；
-- 面板「插件设置」和 haiq plugin config 写的都是这个文件。
+- 面板「插件设置」和 CLI 之外的手工编辑写的是同一个文件
+  （CLI 没有 `plugin config` 子命令，只有 `plugin list|new|reload|enable|disable`）。
 
 声明 `config_schema()`，控制台「插件」页会自动渲染成表单（不声明则退化为自由键值编辑）：
 
@@ -407,13 +423,13 @@ async def draw(self, ctx, prompt: str):
 from haiqbot import Plugin, ProviderContext, SecretSlot
 
 
-class Painter(Plugin):
-    id = "painter"
+class MyImage(Plugin):
+    id = "myimage"
 
     secrets = {
         "api_key": SecretSlot(
             label="生图 API Key",  # 面板与报错里给人看的名字
-            ref="HAIQ_IMAGE_API_KEY",  # 可省略；省略时推导为 haiqbot.painter.api_key
+            ref="HAIQ_IMAGE_API_KEY",  # 可省略；省略时推导为 haiqbot.myimage.api_key
             description="OpenAI 兼容的密钥",
         ),
     }

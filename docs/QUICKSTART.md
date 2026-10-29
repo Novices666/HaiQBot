@@ -4,7 +4,7 @@
 > 本文只走**最短路径**；多机部署、NSSM 服务、Docker 全栈、公网回源见 [DEPLOY.md](DEPLOY.md)。
 
 **本文的 §0–§7 在「全新目录 + 全新 venv」上逐条跑过**（Windows 11 / Python 3.12 / uv 0.10，2026-10-25）：
-`uv sync` → `.env` 写口令 → `doctor`（4 错 / 退出码 2）→ `webui token --generate` → `run`
+`uv sync` → `.env` 写口令 → `doctor`（「凭据缺失」若干 / 退出码 2）→ `webui token --generate` → `run`
 （`GET /` 200、登录 200、`/api/overview` 有数据）→ `secrets set` → `channels enable/verify`
 → 面板接口改连接参数（`reconnected: ["onebot"]`）。**§8 必须在真群试**，本仓库替不了。
 
@@ -240,6 +240,24 @@ haiq channels enable onebot:group:<你的群号> --plugins echo,help,assistant
 haiq channels verify          # 体检：有没有「配了却不生效」
 ```
 
+### 顺带：谁能用管理命令、哪些频道不处理（`[policy]`）
+
+频道开关决定「这个群里跑哪些插件」，`[policy]` 决定「谁是管理员」和「哪些频道一律不碰」。
+两者都在 `haiq.toml`，面板「配置中心」也能改：
+
+```toml
+[policy]
+owners = ["10001"]                 # 主人：最高权限
+admins = ["10002"]                 # 管理员：能用 admin 插件的命令
+channel_whitelist = []             # 留空 = 不限制；填了就只处理这些频道
+channel_blacklist = []             # 优先级高于白名单，写了就一律丢
+handle_timeout_seconds = 8.0       # 单个处理器超时
+max_handlers_per_event = 1         # 同一事件最多跑几个处理器
+```
+
+频道写法与 `haiq channels` 一致（`onebot:group:<群号>`）。`owners` / `admins` 填的是
+**发送者 QQ 号**；配置只能给权限「加码」——平台本身给群主的身份不会被配置降级。
+
 ## 8. 在群里验证
 
 按顺序试，出问题时容易定位：
@@ -249,13 +267,14 @@ haiq channels verify          # 体检：有没有「配了却不生效」
 | `/echo 你好` | 回 `你好` | 验证消息通路 |
 | `@机器人 /help` | 列出命令 | 验证插件加载 |
 | `/问 1+1 等于几` | 回答案 | 单轮对话（不带上下文） |
-| `@机器人 我叫小明` → `@机器人 我叫什么` | 第二句能记住 | 多轮对话，保留 `history_turns` 轮 |
+| `@机器人 我叫小明` → `@机器人 我叫什么` | 第二句能记住 | 多轮对话，保留 `chat_history_turns` 轮 |
 
 ## 自检清单
 
 一条不对就照着排查：
 
-- [ ] `haiq doctor`：除「凭据缺失」外没有 error（凭据录齐后退出码才是 0）
+- [ ] `haiq doctor`：除「凭据缺失」外没有 error。退出码规则：**有 error = 2，只有 warning = 1，干净 = 0**
+      （warning 常见来源是系统代理，它会让「文字正常、发图失败」，所以要当回事）
 - [ ] 日志有 `plugins_ready`，`failed=[]`
 - [ ] 日志有 `onebot_connected`
 - [ ] 面板「白名单与风控」里那个群是**启用**状态
