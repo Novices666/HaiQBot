@@ -456,7 +456,8 @@ OneBot 路线两个已知坑，都已在代码里修掉，若从旧版本升级�
    `api_timeout_seconds`(15s) 与 `send_timeout_seconds`(120s) 两档。
 
 **Q: 群里出现「生成失败，已记录 trace」，但图片其实到了？**
-同上的超时误判。可用 `get_group_msg_history` 核对真实投递结果再判断。
+同上的超时误判。可用**协议端自己**的 `get_group_msg_history`（不在框架动作表里，要直接调协议端的
+HTTP 接口）核对真实投递结果再判断。
 
 **Q: 数据在哪？**
 

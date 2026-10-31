@@ -44,7 +44,7 @@
 > 目标：30 分钟内让机器人在你的 QQ 群里回第一句话。本节只走**最短路径**；
 > 多机部署、NSSM 服务、Docker 全栈、公网回源见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 
-**本节 §0–§7 在「全新目录 + 全新 venv」上逐条跑过**（Windows 11 / Python 3.12 / uv 0.10）：
+**本节 §0–§7 在「全新目录 + 全新 venv」上逐条跑过**（Windows 11 / Python 3.12 / uv 0.10，2026-10-25）：
 `uv sync` → `.env` 写口令 → `doctor`（「凭据缺失」若干 / 退出码 2）→ `webui token --generate` → `run`
 （`GET /` 200、登录 200、`/api/overview` 有数据）→ `secrets set` → `channels enable/verify`
 → 面板接口改连接参数（`reconnected: ["onebot"]`）。**§8 必须在真群试**，本仓库替不了。

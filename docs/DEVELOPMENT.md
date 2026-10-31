@@ -68,7 +68,8 @@ uv run pytest tests/test_boundaries.py -q         # 单个文件
 uv run ruff check . && uv run ruff format --check .
 ```
 
-`tests/` 69 个文件，按「一个关注点一个文件」切。改到哪块先跑对应文件：
+`tests/` 下 69 个 `.py`（含 `conftest.py` 与 `e2e/`），基本按「一个关注点一个文件」切。
+改到哪块先跑对应文件：
 
 | 改动区域 | 先跑这些 |
 |---|---|
