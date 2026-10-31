@@ -1,6 +1,7 @@
 # 开发指南
 
-> 面向**改这个框架的人**。只想装起来用 → 看 [README](../README.md) 的「快速开始」。
+> 面向**改这个框架的人**。只想装起来用 → 看根 [README](../README.md)（5 步最短路径）
+> 或 [INSTALL.md](INSTALL.md)（每平台命令 / 逐字段说明 / 常见故障全表）。
 > 想写插件 → 看 [PLUGIN-GUIDE.md](PLUGIN-GUIDE.md)。
 > 想理解为什么这样分层 → 看 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
@@ -144,10 +145,11 @@ web/src/v2/      面板（8 页 + panels.tsx 渲染器 + theme.ts）
 - **计数类陈述要对代码取数**，别硬编码 —— 历史上“体检 5 类 / 六类 / 10 个判定码”、
   “面板 6 页 / 8 页”、“708 passed / 774 passed”都因此过时过。写“以 X 为准”比写数字安全。
 - **示例里的插件名要用现存的**（`assistant` / 虚构的 `myimage`），不要用已删除的 `painter`。
-- 文档结构固定为：根 [README](../README.md)（初次使用）与 [CONTRIBUTING](../CONTRIBUTING.md)
-  （贡献流程）/ 本文件（开发）/ [PLUGIN-GUIDE](PLUGIN-GUIDE.md)（写插件）/
+- 文档结构固定为：根 [README](../README.md)（30 秒决策 + 5 步最短路径）/
+  [INSTALL](INSTALL.md)（安装与首次配置，详细版）/ 本文件（开发）/
+  [CONTRIBUTING](../CONTRIBUTING.md)（贡献流程）/ [PLUGIN-GUIDE](PLUGIN-GUIDE.md)（写插件）/
   [ARCHITECTURE](ARCHITECTURE.md)（为什么）/ [WEBUI-SPEC](WEBUI-SPEC.md)（面板契约）/
-  [DEPLOY](DEPLOY.md)（部署运维）。
+  [DEPLOY](DEPLOY.md)（部署运维）。**同一个事实只写一处，其余链接过去。**
 
 提交文档前建议自检（脚本可临时写，别入库）：
 
