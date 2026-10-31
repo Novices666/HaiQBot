@@ -143,9 +143,10 @@ web/src/v2/      面板（8 页 + panels.tsx 渲染器 + theme.ts）
 - **计数类陈述要对代码取数**，别硬编码 —— 历史上“体检 5 类 / 六类 / 10 个判定码”、
   “面板 6 页 / 8 页”、“708 passed / 774 passed”都因此过时过。写“以 X 为准”比写数字安全。
 - **示例里的插件名要用现存的**（`assistant` / 虚构的 `myimage`），不要用已删除的 `painter`。
-- 文档结构固定为：本文件（开发）/ [PLUGIN-GUIDE](PLUGIN-GUIDE.md)（写插件）/
+- 文档结构固定为：根 [README](../README.md)（初次使用）与 [CONTRIBUTING](../CONTRIBUTING.md)
+  （贡献流程）/ 本文件（开发）/ [PLUGIN-GUIDE](PLUGIN-GUIDE.md)（写插件）/
   [ARCHITECTURE](ARCHITECTURE.md)（为什么）/ [WEBUI-SPEC](WEBUI-SPEC.md)（面板契约）/
-  [DEPLOY](DEPLOY.md)（部署运维）/ 根 README（初次使用）。
+  [DEPLOY](DEPLOY.md)（部署运维）。
 
 提交文档前建议自检（脚本可临时写，别入库）：
 
@@ -159,15 +160,20 @@ web/src/v2/      面板（8 页 + panels.tsx 渲染器 + theme.ts）
 > 踩过的坑：用行号区间改 md 极易误删；在 ``` 围栏**内部**插入段落会变成代码文本。
 > 改完务必回读一遍插入点周围。
 
-## 7. 提交与发布
+## 7. 发布与仓库约定（维护者）
 
-- 分支 `main` 直推（个人项目）；commit 用 Conventional Commits：`fix(...)` / `feat(...)` /
-  `docs:` / `chore(...)`，中文正文，说清“为什么”而不只是“改了什么”。
-- 提交前：`pytest` 绿 + `ruff` 干净（CI 会拦）。
-- `.gitattributes` 约定：仓库内一律 LF；`*.ps1` / `*.bat` / `*.cmd` 保留 CRLF
+> 提交规范、PR 要求、报告问题的口径统一写在根 [CONTRIBUTING.md](../CONTRIBUTING.md)。
+> 这里只放**改仓库本身**要知道的事 —— 两边都写就会漂移，这正是本仓库吃过亏的地方。
+
+- 分支 `main` 直推（个人项目），不给自己设 PR 流程；外部贡献按 CONTRIBUTING 走。
+- `.gitattributes`：仓库内一律 LF；`*.ps1` / `*.bat` / `*.cmd` 保留 CRLF
   （PowerShell 5.1 对 LF 的 `.ps1` 会解析出错）；`src/haiqbot/webui/dist/**` 标 `-text`。
 - **不入库**：`secrets/`、`.env`、`.vault`、`logs/`、`data/`、`.dev/`、`.pi/`。
-- **没有发布到 PyPI**：`pip install haiqbot` 装不到东西。真值只进 vault，配置只写 `*_ref`；
-  键名与 AEAD AAD 是**数据契约**（`weft.vault.v2` 仍在白名单里），改名会让老 vault 打不开。
-- 改前端构建产物：`cd web && npm ci && npm run build` → 产物写入 `src/haiqbot/webui/dist/`，
-  这个目录要一起提交（部署机不装 node）。
+- **没有发布到 PyPI**：`pip install haiqbot` 装不到东西。
+- **动不得的数据契约**：vault 键名与 AEAD AAD（`weft.vault.v2` 仍在白名单里）。
+  改了老 vault 就打不开 —— 那不是「兼容包袱」，是已加密落盘的唯一副本。
+- 前端构建产物 `src/haiqbot/webui/dist/` 要一起提交（部署机不装 node）：
+  `cd web && npm ci && npm run build`。
+- **抬版本要改两处**，两者没有联动：`pyproject.toml` 的 `version`，以及
+  `src/haiqbot/__init__.py` 的 `__version__`（`haiqbot --version` 读的是后者）。
+  改完跑一次全量测试并打 tag。

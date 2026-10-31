@@ -468,7 +468,8 @@ haiq webui token [--generate]                           # 面板令牌
 | **[docs/PLUGIN-GUIDE.md](docs/PLUGIN-GUIDE.md)** | 写插件：触发器、上下文、凭据槽位、服务契约、自定义面板页 |
 | **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | 分层、能力协商、密钥隔离、事件管线、模块速查、归属决策台账 |
 | **[docs/WEBUI-SPEC.md](docs/WEBUI-SPEC.md)** | 控制台契约：路由、鉴权、PanelPage |
-| **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** | 开发：环境、测试、代码地图、文档与提交规范、发布 |
+| **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** | 开发：环境、测试、代码地图、文档规范、发布约定 |
+| **[CONTRIBUTING.md](CONTRIBUTING.md)** | 参与贡献：能提什么、提交前必跑什么、提交信息与 PR 要求 |
 
 ## 许可证
 
