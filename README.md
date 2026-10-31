@@ -39,45 +39,292 @@
 | **可观测** | 结构化脱敏日志（SSE 实时推送）、审计流水、调用统计、媒体库 |
 | **定时任务** | 持久化（落库）、`interval` / `daily` 两种调度、失败不中断 |
 
-## 快速开始
+## 快速开始：从零到群里收到回复
+
+> 目标：30 分钟内让机器人在你的 QQ 群里回第一句话。本节只走**最短路径**；
+> 多机部署、NSSM 服务、Docker 全栈、公网回源见 [docs/DEPLOY.md](docs/DEPLOY.md)。
+
+**本节 §0–§7 在「全新目录 + 全新 venv」上逐条跑过**（Windows 11 / Python 3.12 / uv 0.10）：
+`uv sync` → `.env` 写口令 → `doctor`（「凭据缺失」若干 / 退出码 2）→ `webui token --generate` → `run`
+（`GET /` 200、登录 200、`/api/overview` 有数据）→ `secrets set` → `channels enable/verify`
+→ 面板接口改连接参数（`reconnected: ["onebot"]`）。**§8 必须在真群试**，本仓库替不了。
+
+### 0. 你会用到什么
+
+| 组件 | 作用 | 必须吗 |
+|---|---|---|
+| **HaiQBot**（本仓库） | 框架本体 + 2 个最小插件（`echo`/`help`）+ 控制台 | 必须 |
+| `plugins-extra/`（本仓库内） | 生图 / 对话 / 群管 / 风控四个插件，可选 | 想要这些功能才需要 |
+| **一个 OneBot v11 协议端** | 把 QQ 账号变成 OneBot v11 接口（如 NapCat / Lagrange.OneBot / LLOneBot） | 接真 QQ 才需要 |
+
+> **没有任何官方 QQ 账号申请流程。** OneBot 路线依赖第三方协议端，账号风险自负。
+
+### 1. 准备与安装
 
 ```bash
-git clone https://github.com/Novices666/HaiQBot && cd HaiQBot
-uv sync --extra dev                       # 冷缓存约 5~6 分钟；也可 pip install -e ".[dev]"
-
-# 全新机器：把 vault 主口令写进 .env（不入库）。内核只从环境变量读它，
-# 读 .env 的是启动器 —— Windows 用 scripts\haiq.ps1。
-echo HAIQ_VAULT_PASSPHRASE=<自定口令> >> .env      # PowerShell: Add-Content .env "HAIQ_VAULT_PASSPHRASE=<自定口令>"
-
-powershell -ExecutionPolicy Bypass -File scripts\haiq.ps1 doctor                 # 自检
-powershell -ExecutionPolicy Bypass -File scripts\haiq.ps1 webui token --generate # 面板令牌（只打印一次）
-powershell -ExecutionPolicy Bypass -File scripts\haiq.ps1 run                    # 起服务：127.0.0.1:8080
-
-uv run haiq run --demo                     # 零成本演示（Mock，跑完即退，不需要口令）
+python --version      # 需要 3.11 或更高
+uv --version          # 没有就装：https://docs.astral.sh/uv/
 ```
 
-> **其它平台**：没有 `haiq.ps1` 这层包装 —— 先 `export HAIQ_VAULT_PASSPHRASE=...`
-> （或把它放进服务环境变量 / Docker `env_file`），再照常用 `uv run haiq <子命令>`。
+```bash
+git clone https://github.com/Novices666/HaiQBot
+cd HaiQBot
+uv sync --extra dev
+```
 
-> **仓库自带 `haiq.toml`**，不需要 `haiq init`（它只给空环境用，且拒绝覆盖已有文件）。
-> 新装 `haiq doctor` 会报「凭据缺失」类错误、退出码 2 —— 那是还没录凭据，不是装坏了（几条取决于带着哪些插件）。
-> **整个面板都要登录**（读接口也不公开），令牌用 `haiq webui token --generate` 生成，只显示一次；会话 12 小时有效，重启进程不用重新登录。
+冷缓存首次约 5~6 分钟（要下 ~40 个包），之后是秒级。
+
+> **没有发布到 PyPI。** `pip install haiqbot` 装不到东西，请用源码方式。
+> 不想用 uv：`python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"`（Linux/macOS 用 `.venv/bin/pip`）。
+
+协议端按它自己的文档装（Docker、桌面版、QQ 插件……都行）；装法不影响本节任何一步。
+
+**下文示例统一写成 `haiq <子命令>`**，实际跑的时候按平台换一种写法（三者等价）：
+
+| 平台 / 习惯 | 怎么写 |
+|---|---|
+| Windows（口令在 `.env`） | `powershell -ExecutionPolicy Bypass -File scripts\haiq.ps1 <子命令>` |
+| 任意平台、不想 activate | `uv run haiq <子命令>`（但 `.env` 不会被读，口令得自己 `export`/`$env:`） |
+| 已 `activate` 了 `.venv` | 直接 `haiq <子命令>`（Linux/macOS 用 `.venv/bin/haiq`） |
+
+> **仓库里已经有 `haiq.toml`**（`plugin_dirs`、`[plugins] enabled` 都填好了），
+> 所以**不需要** `haiq init`。它只在没有配置的环境里用，而且不会覆盖已有文件 ——
+> 对已有配置跑一次会得到 `× haiq.toml 已存在（加 --force 覆盖）`、退出码 1。
+
+### 2. 给 vault 主口令（全新机器必做）
+
+> **只在本机自用、`secrets/` 不会被拷走？** 可以把 `haiq.toml` 的 `[vault] enc` 改成 `"none"`，
+> 直接跳过本节整段口令环节（代价：明文，谁读到文件谁拿到密钥）。判断标准见
+> [docs/DEPLOY.md](docs/DEPLOY.md) 的「要不要加密」。
+
+凭据库默认 AES-256-GCM 加密，**主口令只有一个来源：环境变量 `HAIQ_VAULT_PASSPHRASE`**
+（键名可改，见 `[vault] passphrase_ref`）。干净克隆里既没有 `secrets/vault.json`、也没有口令，所以：
+
+- `haiq run` 能起来，但面板登录不了（日志里 `webui_token_missing`）；
+- `scripts\dev-up.ps1` 会停在这一步，并告诉你去哪儿补。
+
+本机开发：**干净克隆里没有 `.env`**，先从模板复制一份，再把口令写进去
+（`.env` 已在 `.gitignore`，不入库；后面加 API Key 也写这里）：
+
+```bash
+cp .env.example .env            # PowerShell: Copy-Item .env.example .env
+```
+
+然后加一行：
+
+```bash
+HAIQ_VAULT_PASSPHRASE=<自定口令>
+```
+
+口令长度技术上不强制，但别用弱口令（`haiq secrets passwd` 轮换时要求 ≥ 12 位）。
+只想对当前终端有效也行（Linux/macOS 用 `export`），不写 `.env`：
+
+```powershell
+$env:HAIQ_VAULT_PASSPHRASE = "<自定口令>"
+```
+
+要点：
+
+- **口令丢了 = 现有凭据解不开**（没法找回，只能重新录入）。存进密码管理器。
+- 改口令：`haiq secrets passwd` 交互式重写 vault.json，然后把 `.env` / 服务环境变量里的值同步改掉。
+- **别在 `haiq.toml` 里写口令** —— 那里只放 `*_ref` 键名。
+- 服务形态（NSSM / Docker / 服务器）口令怎么给：见 [docs/DEPLOY.md](docs/DEPLOY.md) 的 §0。
+
+### 3. 不碰 QQ，先把服务跑起来
+
+**这一步别跳过。** 它能在你动 QQ 之前证明框架本身是好的。
+
+**Windows**（口令在 `.env` 里，用包装脚本）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\haiq.ps1 doctor                 # 自检
+powershell -ExecutionPolicy Bypass -File scripts\haiq.ps1 webui token --generate # 面板令牌（只打印一次）
+powershell -ExecutionPolicy Bypass -File scripts\haiq.ps1 run                    # 前台启动
+```
+
+**Linux / macOS**（先把口令放环境变量，再直接用 venv 里的 `haiq`）：
+
+```bash
+export HAIQ_VAULT_PASSPHRASE='<自定口令>'
+uv run haiq doctor
+uv run haiq webui token --generate
+uv run haiq run
+```
+
+> 干净克隆里 `haiq` **不在 PATH 上**：要么 `uv run haiq ...`，要么用 Windows 那个包装脚本，
+> 要么先 `activate` venv。直接敲 `haiq` 会得到「命令不存在」。
+
+> **新装 `doctor` 一定报「凭据缺失」类错误、退出码 2** —— 几条取决于你带着多少插件：
+> 仓库自带 `plugins-extra/` 时，`assistant` 的对话 / 生图两个密钥是**必需**项，
+> 加面板令牌一共 3 条；只留 `plugins/`（echo / help）时只有面板令牌这 1 条。
+> 这不是装坏了，是还没录凭据 —— 看「配置 / 依赖 / 插件来源」三项干净就行。
+> 生成面板令牌后再跑一次，会少一条（令牌那项变 `OK 来源 file`）。
+> 漏了口令时会明确说「凭据库打不开」并退出码 2，不会抛 traceback。
+
+另有一条零成本演示（Mock 适配器，不连 QQ、不烧额度）：
+
+```bash
+haiq run --demo
+```
+
+它**跑一段脚本对话就退出**（`/help` → `/画图` → `/问` → `/echo`），不起服务、不开面板 ——
+用来确认「插件加载 + 命令分发 + 出图链路」是通的。想看面板请用上面的 `haiq run`。
+
+浏览器打开 <http://127.0.0.1:8080>，粘上刚生成的令牌登录。
+能看到「总览」有数据、侧栏 8 个页面，就说明框架是通的。`Ctrl+C` 停掉。
+
+> **整个面板都要登录**（读接口也不公开）：令牌用 `haiq webui token --generate` 生成，只显示一次；
+> 会话 12 小时有效，重启进程不用重新登录。
 
 > **WebUI 已随包分发**（`src/haiqbot/webui/dist/` 是构建产物），跑起来不需要 Node.js。
-> 想改前端才需要 `cd web && npm ci && npm run dev`。
+> 想改前端才需要 `cd web && npm ci && npm run dev`，见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
-> **没有发布到 PyPI。** `pip install haiqbot` 现在装不到东西，请用上面的源码方式。
+### 4. 录凭据
 
-接真 QQ（OneBot v11）三步 —— **核心不认识具体协议端**，NapCat / Lagrange / LLOneBot 都一样：
+真值只进 vault，配置文件里只写 `*_ref` 键名。
 
-1. 按它自己的文档装一个 OneBot v11 协议端并登录，在它那边打开**正向 WebSocket**（或 HTTP/SSE），
-   记下地址和 access_token
-2. `uv run haiq run` → 面板「凭据管理」写入 `HAIQ_ONEBOT_ACCESS_TOKEN` → 「配置中心 → 接入」填连接参数
-   填连接角色 / 地址 / 键名 / 机器人 QQ 号，保存后**就地重连**，不用重启进程
-3. 面板「白名单与风控」把群加进来（默认全关，不开频道什么都不做）
+```bash
+haiq secrets set HAIQ_CHAT_API_KEY     # 对话（按需，没有就跳过）
+haiq secrets set HAIQ_IMAGE_API_KEY    # 生图（按需，没有就跳过）
+haiq secrets list                      # 看哪些槽位还是「未设置」
+```
 
-完整流程见 **[docs/QUICKSTART.md](docs/QUICKSTART.md)**（§0–§4 已在干净克隆上逐条验证）。
-本仓库不含协议端。协议端怎么起（以 NapCat 为例的容器与扫码）见 [docs/DEPLOY.md](docs/DEPLOY.md) 的附录。
+`secrets set` 是**交互式输入、不回显、不进 shell history**。
+也可以写槽位名（`haiq secrets set assistant.image_api_key`），效果一样。
+
+> 口令来源只有一处：环境变量 `HAIQ_VAULT_PASSPHRASE`（本机放在 `.env`，由启动器读进去）。
+> 想彻底关掉加密：`haiq.toml` 里 `[vault] enc = "none"` —— 只在你确信这台机器没人能读时用。
+
+### 5. 接一个 OneBot v11 协议端
+
+内核只认 **OneBot v11 这个协议**，不认具体实现 —— 你装哪个、装在哪、用什么方式装，
+都不影响后面的步骤。常见的几个：
+
+| 实现 | 形态 | 说明 |
+|---|---|---|
+| NapCat | Docker / 桌面版 | 只是举例；它的容器与扫码见 [docs/DEPLOY.md](docs/DEPLOY.md) 的附录 |
+| Lagrange.OneBot | 桌面版 | C# 实现 |
+| LLOneBot | QQNT 插件 | 复用你已登录的 QQ 客户端 |
+| 别的 | 只要实现 OneBot v11 | 能给出下面两样东西就行 |
+
+它需要提供两样东西：
+
+1. **连接方式**（看你在协议端那边开的是哪种）
+   - **正向 WebSocket**（最常见）：协议端监听某个端口，例如 `ws://127.0.0.1:3001`，haiqbot 连过去
+   - **HTTP / SSE**：协议端提供 HTTP API（例如 `http://127.0.0.1:3000`），事件走 SSE 或 POST 回我们
+2. **access_token**：协议端里配的令牌。**别贴到任何聊天窗口里**，下一步只往面板里填。
+
+> 本仓库不含任何协议端，也不替你选。第三方协议端有账号风险，自己判断。
+
+### 6. 起来，然后在面板里把它接上
+
+```bash
+haiq run
+```
+
+这时日志会一直刷 `onebot_reconnect ... ConnectionRefusedError`（1s/2s/4s… 退避）——
+正常，因为还没配连接；面板和 CLI 都照常可用。
+
+打开 <http://127.0.0.1:8080>（令牌见 §3），两步配完：
+
+**① 凭据管理 → 新建**：键名 `HAIQ_ONEBOT_ACCESS_TOKEN`，值填协议端给的 access_token。
+列表里只显示「已设置」，不回显真值（看单条明文会落一条 `secret.reveal` 审计）。
+
+**② 配置中心 →「接入」分组**，填完保存：
+
+| 字段 | 填什么 |
+|---|---|
+| 启用 OneBot | 开 |
+| 连接角色 | `client`（正向 WS，最常见）／`server`（我们监听，等协议端连入） |
+| 协议端 WS 地址 | 协议端给的正向 WS 地址。`3001` 只是常见默认值（协议端侧可改），以它显示给你的为准 |
+| 本机监听地址 / 端口 | **只在需要入站时用**：`server`（我们起 WS 等协议端连入）和 `http`（我们起 HTTP 收事件上报），默认 `127.0.0.1:3002`。`client` / `sse` 模式忽略这两项 —— 它们连的地址在上面「协议端 WS 地址」和 `http_api_url` 里 |
+| Access Token 键名 | `HAIQ_ONEBOT_ACCESS_TOKEN`（**键名**，不是令牌本身） |
+| 机器人 QQ 号 | **留空即可**：事件和心跳都带 `self_id`，适配器会自己记下来；只有协议端从不发 `meta_event` 时才需要填 |
+
+保存后会立刻按新参数重连接入端：响应里 `reconnected: ["onebot"]`，日志里 `adapters_restarted`，
+不用重启进程。连上了就能看到：
+
+```
+onebot_connected     url=ws://127.0.0.1:3001
+```
+
+> HTTP / SSE 模式：四种连接方式怎么选、地址该怎么填，见 [docs/DEPLOY.md](docs/DEPLOY.md) 的 C.2。
+> 不想用面板：改 `haiq.toml` 的 `[onebot]` 段 + `haiq secrets set HAIQ_ONEBOT_ACCESS_TOKEN`，
+> 然后重启进程（这两项改了要重连/重启才生效）。
+
+### 7. 开频道（默认全关）
+
+不开频道，bot 收到消息什么都不做。
+
+面板「白名单与风控」→ 新建频道 → `onebot:group:<你的群号>` → 勾选插件 → 保存。
+或者用 CLI：
+
+```bash
+haiq channels enable onebot:group:<你的群号> --plugins echo,help,assistant
+haiq channels verify          # 体检：有没有「配了却不生效」
+```
+
+#### 顺带：谁能用管理命令、哪些频道不处理（`[policy]`）
+
+频道开关决定「这个群里跑哪些插件」，`[policy]` 决定「谁是管理员」和「哪些频道一律不碰」。
+两者都在 `haiq.toml`，面板「配置中心」也能改：
+
+```toml
+[policy]
+owners = ["10001"]                 # 主人：最高权限
+admins = ["10002"]                 # 管理员：能用 admin 插件的命令
+channel_whitelist = []             # 留空 = 不限制；填了就只处理这些频道
+channel_blacklist = []             # 优先级高于白名单，写了就一律丢
+handle_timeout_seconds = 8.0       # 单个处理器超时
+max_handlers_per_event = 1         # 同一事件最多跑几个处理器
+```
+
+频道写法与 `haiq channels` 一致（`onebot:group:<群号>`）。`owners` / `admins` 填的是
+**发送者 QQ 号**；配置只能给权限「加码」——平台本身给群主的身份不会被配置降级。
+
+### 8. 在群里验证
+
+按顺序试，出问题时容易定位：
+
+| 发什么 | 期望 | 说明 |
+|---|---|---|
+| `/echo 你好` | 回 `你好` | 验证消息通路 |
+| `@机器人 /help` | 列出命令 | 验证插件加载 |
+| `/问 1+1 等于几` | 回答案 | 单轮对话（不带上下文） |
+| `@机器人 我叫小明` → `@机器人 我叫什么` | 第二句能记住 | 多轮对话，保留 `chat_history_turns` 轮 |
+
+### 自检清单
+
+一条不对就照着排查：
+
+- [ ] `haiq doctor`：除「凭据缺失」外没有 error。退出码规则：**有 error = 2，只有 warning = 1，干净 = 0**
+      （warning 常见来源是系统代理，它会让「文字正常、发图失败」，所以要当回事）
+- [ ] 日志有 `plugins_ready`，`failed=[]`
+- [ ] 日志有 `onebot_connected`
+- [ ] 面板「白名单与风控」里那个群是**启用**状态
+- [ ] 该群的 `plugins` 列表包含你想用的插件
+- [ ] `haiq channels verify` 没报告静默失效
+
+### 常见故障
+
+| 现象 | 原因 / 怎么修 |
+|---|---|
+| `haiq`：命令不存在 | 干净克隆里它不在 PATH：用 `uv run haiq ...`、`scripts\haiq.ps1`，或先 activate venv（见 §1） |
+| `凭据库打不开：vault 已加密但未提供密码` | 当前 shell 没有 `HAIQ_VAULT_PASSPHRASE`：写进 `.env` 并用 `scripts\haiq.ps1`，或先 `$env:`/`export`；见 §2 |
+| `警告：没拿到 vault 主口令` | 同上；`doctor` 也会这么提示 |
+| `× haiq.toml 已存在（加 --force 覆盖）` | 仓库本来就带配置，不需要 `haiq init`。真要重生成加 `--force` |
+| 跑完 `run --demo` 就打不开面板 | demo 是脚本演示，跑完即退、不起服务；要看面板用 `haiq run` |
+| 面板里改了连接参数，没连上 | 保存后会就地重连（提示「已按新参数重连接入端」）；仍连不上就看协议端那边端口/token 对不对 |
+| 日志一直刷 `onebot_reconnect` | 协议端没起、地址写错、token 不匹配——三者之一。地址和 token 都在面板「配置中心」核对 |
+| 群里 @ 了没反应 | 频道没开（默认全关）；或该群 `plugins` 列表里没有对应插件。跑 `haiq channels verify` |
+| 日志里 `插件来源 0 个` | `plugin_dirs` 写错位置（必须放在任何 `[section]` 前）或路径不存在（相对路径按**启动时工作目录**解析） |
+| 换过口令后一直解不开 | 派生密钥在进程内缓存，改口令必须重启服务 |
+| 文字正常、发图必失败 | **宿主机系统代理开着** → 协议端（尤其容器里的）上传被劫走。先关代理；NapCat 这类协议端还要看它自己的上传超时（`baseTimeout` ≥ 60000） |
+| 扫码/登录出不来二维码 | 那是协议端的事，看它自己的文档；以 NapCat 为例见 [docs/DEPLOY.md](docs/DEPLOY.md) 的附录 |
+| 面板登录不了 | 令牌没生成：`haiq webui token --generate`；或口令变了导致读不到令牌（重启服务） |
+| 改了插件配置没生效 | `ctx.config` 是活视图，但插件读配置的方式要对（`Mapping` 而非 `dict`）；纯代码改动必须重启 |
+
+更细的排障（媒体发送、SSE/HTTP 模式、代理实验矩阵、频道体检）见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 
 ## 插件放哪
 
@@ -141,17 +388,6 @@ haiq plugin disable <id>
 > 写进别的段会变成段内键被静默忽略 —— 框架会告警 `config_field_misplaced`，
 > `haiq doctor` 也会提示「插件来源 0 个」。相对路径按**启动时的工作目录**解析。
 
-## 文档
-
-| 文档 | 内容 |
-|---|---|
-| **[docs/QUICKSTART.md](docs/QUICKSTART.md)** | 从零到群里收到回复（含协议端接入与常见故障） |
-| **[docs/PLUGIN-GUIDE.md](docs/PLUGIN-GUIDE.md)** | 写插件：触发器、上下文、凭据槽位、服务契约、自定义面板页 |
-| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | 分层、能力协商、密钥隔离、事件管线、模块速查 |
-| **[docs/DEPLOY.md](docs/DEPLOY.md)** | 部署：本机 / NSSM 服务 / Docker Compose，以及运维排障 |
-| **[docs/WEBUI-SPEC.md](docs/WEBUI-SPEC.md)** | 控制台契约：路由、鉴权、PanelPage |
-| **[docs/REFRACTOR-PLAN.md](docs/REFRACTOR-PLAN.md)** | 设计取舍的来龙去脉（为什么这样拆） |
-
 ## 架构一眼
 
 ```
@@ -164,10 +400,10 @@ haiq plugin disable <id>
                            Plugin handler ──▶ ctx.reply / ctx.service
                                  │
                                  ▼
-                        OutboundLimiter（每群间隔 / 全局速率 / 重试）
+                       OutboundLimiter（每群间隔 / 全局速率 / 重试）
                                  │
                                  ▼
-                              Adapter ──▶ 平台
+                             Adapter ──▶ 平台
 ```
 
 三道硬边界：
@@ -190,19 +426,19 @@ haiq plugin disable <id>
 面板侧另有一条：**列表接口永远不返回值本体**，看单条明文要单独请求，
 且每次都写 `secret.reveal` 审计（谁在什么时候看过密钥是可见的）。
 
-细节见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#防泄露四道闸)。
+细节见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ## 命令行
 
 ```bash
 haiq init                        # 生成配置与 secrets/
-haiq doctor                      # 自检（有问题会直接说，退出码 1/2）
+haiq doctor                      # 自检（退出码：有 error=2 / 只有 warning=1 / 干净=0）
 haiq run [--demo]                # 启动
 haiq channels list|verify|enable|disable [targets...]   # 频道开关（应急入口）
 haiq jobs list|add|enable|disable|rm                    # 定时任务（应急入口）
-haiq secrets list|set|rm|export|reencrypt|passwd            # 凭据管理
-haiq plugin list|new|reload|enable|disable <id>            # 插件管理（new = 生成骨架）
-haiq webui token [--generate]                              # 面板令牌
+haiq secrets list|set|rm|export|reencrypt|passwd        # 凭据管理
+haiq plugin list|new|reload|enable|disable <id>         # 插件管理（new = 生成骨架）
+haiq webui token [--generate]                           # 面板令牌
 ```
 
 `haiq vault` 是 `haiq secrets` 的旧名，留着兼容；`set`/`list`/`rm` 之外的新东西
@@ -223,17 +459,16 @@ haiq webui token [--generate]                              # 面板令牌
 | 面板内重启/停机 | ❌ 未做（需要进程守护，否则退出后没人拉起） |
 | 子进程隔离 | ❌ 未做（插件一律 inline 加载，`isolation` 目前只是声明） |
 
-## 参与开发
+## 文档
 
-```bash
-uv sync --extra dev
-uv run pytest -q                 # 774 passed
-uv run ruff check . && uv run ruff format --check .
-uv run haiq run --demo           # 不连 QQ 的本地演示
-```
-
-提交前请确保 `pytest` 与 `ruff` 都干净。改动涉及插件边界时，`tests/test_boundaries.py`
-会拦下「内核里出现插件」这类回潮。
+| 文档 | 内容 |
+|---|---|
+| **本 README** | 初次使用：从零到群里收到回复（含协议端接入、自检清单、常见故障） |
+| **[docs/DEPLOY.md](docs/DEPLOY.md)** | 部署运维：本机 / NSSM 服务 / Docker Compose / 大陆网络 / 深度排障 |
+| **[docs/PLUGIN-GUIDE.md](docs/PLUGIN-GUIDE.md)** | 写插件：触发器、上下文、凭据槽位、服务契约、自定义面板页 |
+| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | 分层、能力协商、密钥隔离、事件管线、模块速查、归属决策台账 |
+| **[docs/WEBUI-SPEC.md](docs/WEBUI-SPEC.md)** | 控制台契约：路由、鉴权、PanelPage |
+| **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** | 开发：环境、测试、代码地图、文档与提交规范、发布 |
 
 ## 许可证
 
