@@ -135,7 +135,7 @@ export default function ConfigPage() {
                     <Card key={label} size="small" type="inner" title={label} style={{ marginBottom: 12 }}>
                       <Row gutter={12}>
                         {fields.map((field) => (
-                          <Col span={8} key={field.path}>
+                          <Col xs={24} sm={12} lg={8} key={field.path}>
                             <Form.Item
                               name={field.path}
                               label={
@@ -169,6 +169,7 @@ export default function ConfigPage() {
               label: `凭据（${cfg.data?.secrets.length ?? 0}）`,
               children: (
                 <Table
+                  scroll={{ x: "max-content" }}
                   size="small"
                   rowKey={(row: Record<string, unknown>) => String(row.path)}
                   pagination={false}
@@ -219,6 +220,7 @@ export default function ConfigPage() {
               label: `快照（${history.data?.length ?? 0}）`,
               children: (
                 <Table<HistoryRow>
+                  scroll={{ x: "max-content" }}
                   size="small"
                   rowKey="id"
                   pagination={{ pageSize: 10, hideOnSinglePage: true }}

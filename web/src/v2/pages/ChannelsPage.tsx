@@ -145,6 +145,7 @@ export default function ChannelsPage() {
         }
       >
         <Table<ChannelRow>
+          scroll={{ x: "max-content" }}
           size="small"
           rowKey="channel"
           loading={!channels.data && !channels.error}

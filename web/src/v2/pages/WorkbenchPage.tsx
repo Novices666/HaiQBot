@@ -105,12 +105,12 @@ export default function WorkbenchPage() {
           onFinish={run}
         >
           <Row gutter={12}>
-            <Col span={10}>
+            <Col xs={24} md={10}>
               <Form.Item name="text" label="消息文本" rules={[{ required: true, message: "写点什么" }]}>
                 <Input placeholder="比如：画一只猫" />
               </Form.Item>
             </Col>
-            <Col span={4}>
+            <Col xs={12} md={4}>
               <Form.Item name="platform" label="平台">
                 <Select
                   options={[
@@ -120,7 +120,7 @@ export default function WorkbenchPage() {
                 />
               </Form.Item>
             </Col>
-            <Col span={4}>
+            <Col xs={12} md={4}>
               <Form.Item name="channel_kind" label="频道类型">
                 <Select
                   options={[
@@ -130,12 +130,12 @@ export default function WorkbenchPage() {
                 />
               </Form.Item>
             </Col>
-            <Col span={3}>
+            <Col xs={12} md={3}>
               <Form.Item name="channel_id" label="频道号">
                 <Input />
               </Form.Item>
             </Col>
-            <Col span={3}>
+            <Col xs={12} md={3}>
               <Form.Item name="role" label="身份">
                 <Select
                   options={[
@@ -186,6 +186,7 @@ export default function WorkbenchPage() {
         <>
           <Card size="small" title={`匹配到 ${result.matched.length} 条规则（共 ${result.rules_total} 条）`}>
             <Table<MatchedRule>
+              scroll={{ x: "max-content" }}
               size="small"
               rowKey={(r) => `${r.plugin}:${r.rule}`}
               pagination={false}
@@ -226,6 +227,7 @@ export default function WorkbenchPage() {
 
           <Card size="small" title={`未接管 ${result.skipped.length} 条`}>
             <Table<SkippedRule>
+              scroll={{ x: "max-content" }}
               size="small"
               rowKey={(r) => `${r.plugin}:${r.rule}`}
               pagination={{ pageSize: 12, hideOnSinglePage: true }}

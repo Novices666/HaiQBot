@@ -172,6 +172,7 @@ function AuditTab() {
       </Flex>
       {audit.error ? <Alert type="error" showIcon message={audit.error.message} /> : null}
       <Table<AuditRow>
+        scroll={{ x: "max-content" }}
         size="small"
         rowKey={(row) => String(row.id ?? `${row.ts}:${row.action}`)}
         loading={!audit.data && !audit.error}
@@ -316,6 +317,7 @@ function InvocationTab() {
       >
         {stats.error ? <Alert type="error" showIcon message={stats.error.message} /> : null}
         <Table<InvocationStat>
+          scroll={{ x: "max-content" }}
           size="small"
           rowKey={(r) => `${r.capability ?? "-"}:${r.status ?? "-"}`}
           loading={!stats.data && !stats.error}
@@ -386,6 +388,7 @@ function InvocationTab() {
 
       {rows.error ? <Alert type="error" showIcon message={rows.error.message} /> : null}
       <Table<InvocationRow>
+        scroll={{ x: "max-content" }}
         size="small"
         rowKey={(row) => String(row.id ?? `${row.ts}:${row.capability}`)}
         loading={!rows.data && !rows.error}

@@ -10,9 +10,13 @@ import {
 
   ConfigProvider,
 
+  Drawer,
+
   Flex,
 
   Form,
+
+  Grid,
 
   Input,
 
@@ -128,7 +132,7 @@ function Login({ onDone }: { onDone: (s: Session) => void }) {
 
     <Flex align="center" justify="center" style={{ minHeight: "100vh", padding: 24 }}>
 
-      <div style={{ width: 380 }}>
+      <div style={{ width: "100%", maxWidth: 380 }}>
 
         <Typography.Title level={3} style={{ marginBottom: 4 }}>
 
@@ -197,6 +201,11 @@ export default function V2App() {
   const [page, setPage] = useState<string>(() => window.location.hash.replace("#", "") || "overview");
 
   const [collapsed, setCollapsed] = useState(false);
+
+  /** 手机断点：md（768px）以下走抽屉导航，不再固定侧栏。 */
+  const screens = Grid.useBreakpoint();
+  const isMobile = screens.md === false;
+  const [navOpen, setNavOpen] = useState(false);
 
 
 
@@ -381,6 +390,7 @@ export default function V2App() {
 
         <Layout style={{ minHeight: "100vh" }}>
 
+          {!isMobile && (
           <Layout.Sider
 
             collapsible
@@ -443,6 +453,8 @@ export default function V2App() {
 
           </Layout.Sider>
 
+          )}
+
 
 
           <Layout>
@@ -459,13 +471,32 @@ export default function V2App() {
 
                 background: mode === "dark" ? "#141414" : "#fff",
 
+                paddingInline: isMobile ? 12 : 24,
+
+                height: isMobile ? 48 : 64,
+
+                lineHeight: isMobile ? "48px" : "64px",
+
                 borderBottom: "1px solid rgba(5,5,5,0.06)",
 
               }}
 
             >
 
-              <Typography.Text strong>{titleOf(page)}</Typography.Text>
+              {isMobile ? (
+                <Button
+                  type="text"
+                  aria-label="打开导航"
+                  onClick={() => setNavOpen(true)}
+                  style={{ paddingInline: 6, fontSize: 18, height: 36 }}
+                >
+                  ☰
+                </Button>
+              ) : null}
+
+              <Typography.Text strong ellipsis style={{ minWidth: 0 }}>
+                {titleOf(page)}
+              </Typography.Text>
 
               <span style={{ flex: 1 }} />
 
@@ -521,13 +552,34 @@ export default function V2App() {
 
 
 
-            <Layout.Content style={{ padding: 20 }}>
+            <Layout.Content style={{ padding: isMobile ? 12 : 20 }}>
 
               <div style={{ maxWidth: 1280, margin: "0 auto" }}>{body}</div>
 
             </Layout.Content>
 
           </Layout>
+
+        {isMobile ? (
+          <Drawer
+            placement="left"
+            open={navOpen}
+            onClose={() => setNavOpen(false)}
+            width={248}
+            title="HaiQBot 控制台"
+            styles={{ body: { padding: 0 } }}
+          >
+            <Menu
+              mode="inline"
+              selectedKeys={[page]}
+              items={menuItems}
+              onClick={(info) => {
+                goto(info.key);
+                setNavOpen(false);
+              }}
+            />
+          </Drawer>
+        ) : null}
 
         </Layout>
 

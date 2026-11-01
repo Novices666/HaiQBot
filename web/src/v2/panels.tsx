@@ -108,6 +108,7 @@ function Section({ pid, section, onDone }: { pid: string; section: PanelSection;
       return (
         <Card size="small" type="inner" title={str(section.title)} style={{ marginBottom: 12 }}>
           <Table
+            scroll={{ x: "max-content" }}
             size="small"
             rowKey={(_row, index) => String(index)}
             pagination={false}

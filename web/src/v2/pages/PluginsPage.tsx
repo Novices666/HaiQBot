@@ -101,6 +101,7 @@ function SecretsView({ slots }: { slots: SecretSlot[] }) {
   }
   return (
     <Table<SecretSlot>
+      scroll={{ x: "max-content" }}
       size="small"
       rowKey="slot"
       pagination={false}
@@ -176,6 +177,7 @@ export default function PluginsPage() {
       <RuntimePanel />
       <Card size="small" title="插件（点击行展开：命令 / 配置 / 凭据）">
         <Table<PluginRow>
+          scroll={{ x: "max-content" }}
           size="small"
           rowKey="id"
           loading={!data && !error}
@@ -330,6 +332,7 @@ function RuntimePanel() {
               <Flex vertical gap={8}>
                 {services.error ? <Alert type="error" showIcon message={services.error.message} /> : null}
                 <Table
+                  scroll={{ x: "max-content" }}
                   size="small"
                   rowKey="name"
                   loading={!services.data && !services.error}
@@ -364,6 +367,7 @@ function RuntimePanel() {
               <Flex vertical gap={8}>
                 {commands.error ? <Alert type="error" showIcon message={commands.error.message} /> : null}
                 <Table<CommandRow>
+                  scroll={{ x: "max-content" }}
                   size="small"
                   rowKey={(c) => `${c.plugin}:${c.command}`}
                   loading={!commands.data && !commands.error}

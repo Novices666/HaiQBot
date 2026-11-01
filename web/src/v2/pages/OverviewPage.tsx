@@ -48,7 +48,7 @@ export default function OverviewPage() {
       {error ? <Alert type="error" showIcon message={error.message} description={error.hint} /> : null}
 
       <Row gutter={16}>
-        <Col span={6}>
+        <Col xs={12} sm={12} lg={6}>
           <Card>
             <Statistic
               title="运行时长"
@@ -57,17 +57,17 @@ export default function OverviewPage() {
             />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} sm={12} lg={6}>
           <Card>
             <Statistic title="累计事件" value={data?.runtime.events_total ?? 0} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} sm={12} lg={6}>
           <Card>
             <Statistic title="已处理" value={data?.runtime.handled_total ?? 0} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} sm={12} lg={6}>
           <Card>
             <Statistic
               title="平台在线"
@@ -119,7 +119,7 @@ export default function OverviewPage() {
       </Card>
 
       <Row gutter={16}>
-        <Col span={12}>
+        <Col xs={24} lg={12}>
           <Card title="平台连接" size="small">
             {Object.keys(data?.platforms ?? {}).length === 0 ? (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有启用的平台适配器" />
@@ -139,7 +139,7 @@ export default function OverviewPage() {
             )}
           </Card>
         </Col>
-        <Col span={12}>
+        <Col xs={24} lg={12}>
           <Card title="运行参数" size="small">
             <Descriptions size="small" column={1}>
               <Descriptions.Item label="OneBot 模式">
@@ -169,6 +169,7 @@ export default function OverviewPage() {
 
       <Card title="最近审计" size="small">
         <Table<AuditRow>
+          scroll={{ x: "max-content" }}
           size="small"
           rowKey={(_row, i) => String(i)}
           pagination={false}
