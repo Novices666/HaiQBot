@@ -107,7 +107,7 @@ src/haiqbot/
   config.py      配置模型 + 环境变量覆盖 + 派生路径
 plugins/         框架最小集：echo · help
 plugins-extra/   自有插件：assistant · guard · admin
-web/src/v2/      面板（8 页 + panels.tsx 渲染器 + theme.ts）
+web/src/app/      面板（8 页 + panels.tsx 渲染器 + theme.ts）
 ```
 
 `kernel/` 里挑几个容易找错的：

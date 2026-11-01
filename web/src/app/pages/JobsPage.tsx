@@ -3,7 +3,7 @@
  * 动作只有「发文本」和空操作 —— 这里刻意不提供「执行任意命令」。
  */
 import { useMemo, useState } from "react";
-import { Alert, Button, Card, Flex, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, Typography, message } from "antd";
+import { Alert, Button, Card, Flex, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, Typography, message } from "antd";
 import { del, post } from "../../api";
 import { fmtTime, usePoll } from "../lib";
 
@@ -229,7 +229,6 @@ export default function JobsPage() {
               width: 80,
               render: (_v, row) => (
                 <Switch
-                  size="small"
                   checked={row.enabled}
                   loading={busy === row.id}
                   onChange={(checked) => void toggle(row, checked)}
@@ -256,7 +255,7 @@ export default function JobsPage() {
               render: (_v, row) => (
                 <Flex vertical>
                   <Typography.Text>{dueText(row.due_in)}</Typography.Text>
-                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                     {fmtTime(row.next_run_at)}
                   </Typography.Text>
                 </Flex>
@@ -294,20 +293,20 @@ export default function JobsPage() {
         destroyOnHidden
         width={560}
       >
-        <Flex vertical gap={12}>
-          <div>
-            <Typography.Text type="secondary">名称</Typography.Text>
+        <Form layout="vertical" component={false}>
+          <Form.Item label="名称" htmlFor="job-name" required>
             <Input
+              id="job-name"
               value={draft?.name ?? ""}
               placeholder="例如：早报"
               onChange={(event) => setDraft((prev) => (prev ? { ...prev, name: event.target.value } : prev))}
             />
-          </div>
+          </Form.Item>
 
           <Flex gap={12}>
-            <div style={{ flex: 1 }}>
-              <Typography.Text type="secondary">调度方式</Typography.Text>
+            <Form.Item label="调度方式" htmlFor="job-kind" required style={{ flex: 1 }}>
               <Select
+                id="job-kind"
                 style={{ width: "100%" }}
                 value={draft?.kind ?? "daily"}
                 options={[
@@ -318,17 +317,23 @@ export default function JobsPage() {
                   setDraft((prev) => (prev ? { ...prev, kind: value as Draft["kind"] } : prev))
                 }
               />
-            </div>
-            <div style={{ width: 160 }}>
-              <Typography.Text type="secondary">{draft?.kind === "daily" ? "时间" : "间隔（秒）"}</Typography.Text>
+            </Form.Item>
+            <Form.Item
+              label={draft?.kind === "daily" ? "时间" : "间隔（秒）"}
+              htmlFor={draft?.kind === "daily" ? "job-at" : "job-seconds"}
+              required
+              style={{ width: 160 }}
+            >
               {draft?.kind === "daily" ? (
                 <Input
+                  id="job-at"
                   value={draft.at}
                   placeholder="09:30"
                   onChange={(event) => setDraft((prev) => (prev ? { ...prev, at: event.target.value } : prev))}
                 />
               ) : (
                 <InputNumber
+                  id="job-seconds"
                   style={{ width: "100%" }}
                   min={5}
                   value={draft?.seconds ?? 3600}
@@ -337,39 +342,38 @@ export default function JobsPage() {
                   }
                 />
               )}
-            </div>
+            </Form.Item>
           </Flex>
 
-          <div>
-            <Typography.Text type="secondary">发到哪个频道</Typography.Text>
+          <Form.Item label="发到哪个频道" htmlFor="job-channel" required>
             <Select
+              id="job-channel"
               style={{ width: "100%" }}
               value={draft?.channel || undefined}
               placeholder="选一个已启用的频道"
               options={channelOptions}
               onChange={(value) => setDraft((prev) => (prev ? { ...prev, channel: value } : prev))}
             />
-          </div>
+          </Form.Item>
 
-          <div>
-            <Typography.Text type="secondary">内容（纯文本，最多 2000 字）</Typography.Text>
+          <Form.Item label="内容" htmlFor="job-text" required extra="纯文本，最多 2000 字">
             <Input.TextArea
+              id="job-text"
               rows={3}
               value={draft?.text ?? ""}
               placeholder="早上好，今天也要开心"
               onChange={(event) => setDraft((prev) => (prev ? { ...prev, text: event.target.value } : prev))}
             />
-          </div>
+          </Form.Item>
 
-          <Flex align="center" gap={8}>
+          <Form.Item label="保存后立即启用" htmlFor="job-enabled" style={{ marginBottom: 0 }}>
             <Switch
-              size="small"
+              id="job-enabled"
               checked={draft?.enabled ?? true}
               onChange={(checked) => setDraft((prev) => (prev ? { ...prev, enabled: checked } : prev))}
             />
-            <Typography.Text type="secondary">保存后立即启用</Typography.Text>
-          </Flex>
-        </Flex>
+          </Form.Item>
+        </Form>
       </Modal>
     </Flex>
   );

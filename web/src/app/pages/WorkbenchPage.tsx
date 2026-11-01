@@ -11,6 +11,7 @@ import {
   Button,
   Card,
   Col,
+  Divider,
   Flex,
   Form,
   Input,
@@ -149,20 +150,14 @@ export default function WorkbenchPage() {
           </Row>
           <Flex align="center" gap={16} wrap>
             <Form.Item name="at_bot" label="@ 了机器人" valuePropName="checked" style={{ marginBottom: 0 }}>
-              <Switch size="small" />
+              <Switch />
             </Form.Item>
             <Button type="primary" htmlType="submit" loading={running}>
               预演
             </Button>
-            <span style={{ color: "#d9d9d9" }}>|</span>
-            <Form.Item label="真发" style={{ marginBottom: 0 }}>
-              <Switch
-                size="small"
-                checked={liveSend}
-                onChange={setLiveSend}
-                checkedChildren="开"
-                unCheckedChildren="关"
-              />
+            <Divider type="vertical" />
+            <Form.Item label="真发" htmlFor="wb-live" style={{ marginBottom: 0 }}>
+              <Switch id="wb-live" checked={liveSend} onChange={setLiveSend} />
             </Form.Item>
             <Button
               danger

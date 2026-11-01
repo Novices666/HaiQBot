@@ -1,4 +1,4 @@
-/** v2 通用小工具：轮询 hook、格式化。刻意不做全局 store —— 每页自己拉数据。 */
+/** 通用小工具：轮询 hook、格式化。刻意不做全局 store —— 每页自己拉数据。 */
 import { useEffect, useRef, useState } from "react";
 import { ApiError, get } from "../api";
 

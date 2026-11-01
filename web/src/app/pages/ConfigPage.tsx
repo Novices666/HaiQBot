@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Col,
+  Collapse,
   Flex,
   Form,
   Input,
@@ -21,31 +22,103 @@ import {
   message,
 } from "antd";
 import { post } from "../../api";
-import { fmtTime, text, usePoll } from "../lib";
+import { fmtTime, usePoll } from "../lib";
 import type { ConfigField, ConfigPayload, HistoryRow } from "../types";
 
-function Control({ field }: { field: ConfigField }) {
-  if (field.readonly) return <Input disabled value={text(field.value, "")} />;
+/** 把 `{onebot: {host: x}}` 摊回 `{"onebot.host": x}` —— 表单 name 用了数组，取回来要还原。 */
+function flatten(obj: Record<string, unknown>, prefix = ""): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      Object.assign(out, flatten(value as Record<string, unknown>, path));
+    } else {
+      out[path] = value;
+    }
+  }
+  return out;
+}
+
+/** 反向：把 `{"onebot.host": x}` 还原成 `{onebot: {host: x}}` —— 表单 name 是数组，要嵌套形状。 */
+function unflatten(flat: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [path, value] of Object.entries(flat)) {
+    const parts = path.split(".");
+    let node = out;
+    for (let i = 0; i < parts.length - 1; i += 1) {
+      const key = parts[i];
+      if (!node[key] || typeof node[key] !== "object") node[key] = {};
+      node = node[key] as Record<string, unknown>;
+    }
+    node[parts[parts.length - 1]] = value;
+  }
+  return out;
+}
+
+/**
+ * 表单控件。
+ *
+ * ⚠️ 必须把 `Form.Item` 注入的 `value` / `onChange` **透传**给真正的 antd 控件
+ * （`...injected`）。之前这里只接 `field`，注入的 props 被丢掉 —— 表现就是
+ * 整页输入框永远是空的：后端 50 个字段都带值，表单也 setFieldsValue 了，
+ * 但值没有落到 DOM 上。
+ */
+type ControlProps = { field: ConfigField } & Record<string, unknown>;
+
+/** 字段元信息：路径 / 生效方式 / 值来源 / 帮助，统一放在输入框下面一行小字。
+ *  之前全塞在 label 里，一个字段挂 2–3 个 Tag，标签行被挤成两三行。 */
+function FieldMeta({ field }: { field: ConfigField }) {
+  const badge =
+    field.source === "env"
+      ? { color: "orange", text: "环境变量" }
+      : field.source === "default"
+        ? { color: "default", text: "默认值" }
+        : null;
+  return (
+    <Space size={4} wrap style={{ fontSize: 12, lineHeight: "20px" }}>
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        {field.path}
+      </Typography.Text>
+      <Tag color={field.readonly ? "default" : "blue"}>{field.apply_label}</Tag>
+      {badge ? (
+        <Tooltip
+          title={
+            field.source === "env"
+              ? "这个值来自环境变量覆盖（如 HAIQ_DATA_DIR），文件里写的值不生效"
+              : "文件里没写这个键，当前用的是默认值"
+          }
+        >
+          <Tag color={badge.color}>{badge.text}</Tag>
+        </Tooltip>
+      ) : null}
+      {field.help ? (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {field.help}
+        </Typography.Text>
+      ) : null}
+    </Space>
+  );
+}
+
+function Control({ field, ...injected }: ControlProps) {
+  if (field.readonly) return <Input disabled {...injected} />;
   if (field.choices.length > 0) {
     return (
-      <Select
-        options={field.choices.map((c) => ({ value: c, label: c }))}
-        allowClear
-        placeholder={text(field.value)}
-      />
+      <Select options={field.choices.map((c) => ({ value: c, label: c }))} allowClear {...injected} />
     );
   }
-  if (field.kind === "bool") return <Switch />;
+  if (field.kind === "bool") return <Switch {...injected} />;
   if (field.kind === "int" || field.kind === "float") {
     return (
       <InputNumber
         style={{ width: "100%" }}
         min={field.minimum ?? undefined}
         max={field.maximum ?? undefined}
+        {...injected}
       />
     );
   }
-  return <Input placeholder={field.kind === "ref" ? "vault 引用名，不是密钥本身" : ""} />;
+  return <Input placeholder={field.kind === "ref" ? "vault 引用名，不是密钥本身" : ""} {...injected} />;
 }
 
 export default function ConfigPage() {
@@ -69,17 +142,23 @@ export default function ConfigPage() {
     return out;
   }, [cfg.data]);
 
+  const initialNested = useMemo(() => unflatten(initial), [initial]);
+
   // antd 的 initialValues 只在**首次挂载**时生效，而这里是先挂载、数据后到，
-  // 所以必须在拿到 /api/config 之后显式灌一次 —— 否则整页输入框永远是空的
-  // （后端 50 个字段都带着值，问题只在前端没把它们放进表单）。
+  // 所以必须在拿到 /api/config 之后显式灌一次 —— 否则整页输入框永远是空的。
+  // 注意灌的必须是**嵌套形状**（和 name={path.split(".")} 对应），
+  // 直接灌 "onebot.host" 这种点号键会因为键名歧义读不到。
   useEffect(() => {
     if (!cfg.data) return;
-    form.setFieldsValue(initial);
-  }, [cfg.data, form, initial]);
+    form.setFieldsValue(initialNested);
+  }, [cfg.data, form, initialNested]);
 
   const save = async (values: Record<string, unknown>) => {
+    // 表单 name 用了数组（见下面 name={field.path.split(".")}），取回来是嵌套对象，
+    // 这里摊平成 "onebot.host" 这样的路径再和后端比对/提交。
+    const flat = flatten(values);
     const changes: Record<string, unknown> = {};
-    for (const [path, value] of Object.entries(values)) {
+    for (const [path, value] of Object.entries(flat)) {
       if (value === undefined) continue;
       if (JSON.stringify(value) !== JSON.stringify(initial[path])) changes[path] = value;
     }
@@ -130,34 +209,34 @@ export default function ConfigPage() {
               key: "form",
               label: "字段",
               children: (
-                <Form form={form} layout="vertical" size="small" initialValues={initial} onFinish={save}>
-                  {groups.map(([label, fields]) => (
-                    <Card key={label} size="small" type="inner" title={label} style={{ marginBottom: 12 }}>
-                      <Row gutter={12}>
+                <Form form={form} layout="vertical" initialValues={initialNested} onFinish={save}>
+                  <Collapse
+                    size="small"
+                    // groups 一开始是空的（数据后到），defaultActiveKey 只在挂载时读一次，
+                    // 所以用 key 让它随分组重建，保证"第一组默认展开"。
+                    key={groups.map(([label]) => label).join("|")}
+                    defaultActiveKey={groups.length ? [groups[0][0]] : []}
+                    items={groups.map(([label, fields]) => ({
+                      key: label,
+                      label: `${label}（${fields.length} 项）`,
+                      children: (
+                        <Row gutter={[12, 0]}>
                         {fields.map((field) => (
                           <Col xs={24} sm={12} lg={8} key={field.path}>
                             <Form.Item
-                              name={field.path}
-                              label={
-                                <Space size={4}>
-                                  <span>{field.label}</span>
-                                  <Tooltip title={`${field.path} · 生效方式：${field.apply_label}`}>
-                                    <Tag color={field.readonly ? "default" : "blue"} style={{ marginInlineStart: 0 }}>
-                                      {field.apply_label}
-                                    </Tag>
-                                  </Tooltip>
-                                </Space>
-                              }
-                              extra={field.help || undefined}
+                              name={field.path.split(".")}
+                              label={field.label}
+                              extra={<FieldMeta field={field} />}
                               valuePropName={field.kind === "bool" ? "checked" : "value"}
                             >
                               <Control field={field} />
                             </Form.Item>
                           </Col>
                         ))}
-                      </Row>
-                    </Card>
-                  ))}
+                        </Row>
+                      ),
+                    }))}
+                  />
                   <Button type="primary" htmlType="submit" loading={saving}>
                     保存改动
                   </Button>

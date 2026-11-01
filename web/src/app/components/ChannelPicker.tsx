@@ -48,7 +48,7 @@ export default function ChannelPicker({
       value={value}
       onChange={(next: string) => onChange?.(next)}
       options={options}
-      style={{ width: 260 }}
+      style={{ width: "100%" }}
       placeholder="搜群名或群号，也可直接手填"
       filterOption={(input, option) =>
         String(option?.label ?? "")

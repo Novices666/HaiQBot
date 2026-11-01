@@ -32,7 +32,7 @@ from haiqbot.webui.api.common import Ctx, audit, fail, ok, read_json
 
 log = get_logger(__name__)
 
-#: 前端认识的 section 类型；新增类型要同时改 web/src/v2/panels.tsx。
+#: 前端认识的 section 类型；新增类型要同时改 web/src/app/panels.tsx。
 SECTION_TYPES = ("field_group", "readonly_table", "action_button", "text")
 
 

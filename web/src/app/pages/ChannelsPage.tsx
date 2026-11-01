@@ -4,10 +4,12 @@ import {
   Alert,
   Button,
   Card,
+  Col,
   Drawer,
   Flex,
   Form,
   Input,
+  Row,
   Select,
   Space,
   Switch,
@@ -104,21 +106,22 @@ export default function ChannelsPage() {
           }
           description={
             verify.data.problems.length === 0 ? undefined : (
-              <ul style={{ margin: 0, paddingInlineStart: 18 }}>
+              <Space direction="vertical" size={4}>
                 {verify.data.problems.map((problem, index) => {
                   const row = (channels.data ?? []).find((item) => item.channel === problem.channel);
                   return (
-                    <li key={`${problem.channel}-${index}`}>
-                      <Typography.Text code>{problem.channel}</Typography.Text> {problem.message}
+                    <Flex key={`${problem.channel}-${index}`} align="center" gap={4} wrap>
+                      <Typography.Text code>{problem.channel}</Typography.Text>
+                      <span>{problem.message}</span>
                       {row ? (
                         <Button size="small" type="link" onClick={() => open(row)}>
                           去修
                         </Button>
                       ) : null}
-                    </li>
+                    </Flex>
                   );
                 })}
-              </ul>
+              </Space>
             )
           }
         />
@@ -135,13 +138,15 @@ export default function ChannelsPage() {
         size="small"
         title="频道开关"
         extra={
-          <Space>
+          <Flex align="center" gap={8} wrap justify="flex-end">
             <Typography.Text type="secondary">显示已停用</Typography.Text>
-            <Switch size="small" checked={showDisabled} onChange={setShowDisabled} />
-            <Button size="small" onClick={() => channels.reload()}>
-              刷新
-            </Button>
-          </Space>
+            <Switch
+              checked={showDisabled}
+              onChange={setShowDisabled}
+              aria-label="显示已停用的频道"
+            />
+            <Button onClick={() => channels.reload()}>刷新</Button>
+          </Flex>
         }
       >
         <Table<ChannelRow>
@@ -195,7 +200,7 @@ export default function ChannelsPage() {
             },
             {
               title: "操作",
-              width: 150,
+              width: 160,
               render: (_v, row) => (
                 <Space size={4}>
                   <Button size="small" onClick={() => open(row)}>
@@ -215,42 +220,51 @@ export default function ChannelsPage() {
         size="small"
         title="新建 / 开启一个频道"
         extra={
-          <Button size="small" onClick={() => candidates.reload()}>
-            刷新候选
-          </Button>
+          <Button onClick={() => candidates.reload()}>刷新候选</Button>
         }
       >
+        {/* 竖排 + 栅格：原来的 inline 表单里，候选错误提示会把 Form.Item 撑宽，
+            整行顶出视口 180px（实测 879 视口下文档宽 1059）。 */}
         <Form
           form={pickForm}
-          layout="inline"
+          layout="vertical"
+          requiredMark={false}
           onFinish={(values: { prefix: string; id: string }) => {
             const channel = `${values.prefix}${values.id}`;
             setEditing({ channel, enabled: true, plugins: [], note: "" });
           }}
         >
-          <Form.Item name="prefix" initialValue="onebot:group:" rules={[{ required: true }]}>
-            <Select
-              style={{ width: 190 }}
-              options={[
-                { value: "onebot:group:", label: "OneBot 群" },
-                { value: "onebot:private:", label: "OneBot 私聊" },
-                { value: "official:group:", label: "官方 群" },
-                { value: "official:private:", label: "官方 私聊" },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item
-            name="id"
-            rules={[{ required: true, message: "从下拉里选，或直接填群号 / QQ 号" }]}
-            extra={<CandidateHint errors={candidates.data?.errors ?? []} total={candidates.data?.items?.length ?? 0} />}
-          >
-            <ChannelPicker candidates={candidates.data?.items ?? []} prefix={prefix} />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit">
-              下一步：选功能
-            </Button>
-          </Form.Item>
+          <Row gutter={[12, 0]}>
+            <Col xs={24} md={8} lg={7}>
+              <Form.Item name="prefix" label="频道类型" initialValue="onebot:group:" rules={[{ required: true }]}>
+                <Select
+                  options={[
+                    { value: "onebot:group:", label: "OneBot 群" },
+                    { value: "onebot:private:", label: "OneBot 私聊" },
+                    { value: "official:group:", label: "官方 群" },
+                    { value: "official:private:", label: "官方 私聊" },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={10} lg={11}>
+              <Form.Item
+                name="id"
+                label="群号 / QQ 号"
+                rules={[{ required: true, message: "从下拉里选，或直接填群号 / QQ 号" }]}
+                extra={<CandidateHint errors={candidates.data?.errors ?? []} total={candidates.data?.items?.length ?? 0} />}
+              >
+                <ChannelPicker candidates={candidates.data?.items ?? []} prefix={prefix} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={6} lg={6}>
+              <Form.Item label=" " colon={false}>
+                <Button type="primary" htmlType="submit" block>
+                  下一步：选功能
+                </Button>
+              </Form.Item>
+            </Col>
+          </Row>
         </Form>
       </Card>
 
@@ -258,6 +272,7 @@ export default function ChannelsPage() {
         open={editing !== null}
         onClose={() => setEditing(null)}
         width={460}
+        destroyOnHidden
         title={editing ? `开关：${editing.channel}` : ""}
         extra={
           <Button type="primary" loading={saving} onClick={() => void save()}>
@@ -266,40 +281,40 @@ export default function ChannelsPage() {
         }
       >
         {editing ? (
-          <Flex vertical gap={16}>
-            <Flex align="center" gap={8}>
-              <Typography.Text>频道启用</Typography.Text>
+          <Form layout="vertical" component={false}>
+            <Form.Item label="频道启用" htmlFor="ch-enabled" extra="关闭后即使下面的功能全选也不响应">
               <Switch
+                id="ch-enabled"
                 checked={editing.enabled}
                 onChange={(v) => setEditing({ ...editing, enabled: v })}
               />
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                关闭后即使下面的功能全选也不响应
-              </Typography.Text>
-            </Flex>
-            <div>
-              <Typography.Text>已开启项</Typography.Text>
+            </Form.Item>
+            <Form.Item
+              label="已开启项"
+              htmlFor="ch-plugins"
+              extra="写插件 id = 该插件全部功能；写 plugin:feature 只开某一项，例如 painter:draw、chat:ask"
+            >
               <Select
+                id="ch-plugins"
                 mode="tags"
-                style={{ width: "100%", marginTop: 8 }}
+                style={{ width: "100%" }}
                 value={editing.plugins}
                 onChange={(v: string[]) => setEditing({ ...editing, plugins: v })}
                 options={options}
-                placeholder="选插件 = 全功能；或手填 painter:draw、chat:ask"
+                placeholder="选插件，或直接输入 plugin:feature"
                 tokenSeparators={[",", " "]}
               />
-            </div>
-            <div>
-              <Typography.Text>备注</Typography.Text>
+            </Form.Item>
+            <Form.Item label="备注" htmlFor="ch-note">
               <Input.TextArea
-                style={{ marginTop: 8 }}
+                id="ch-note"
                 rows={2}
                 value={editing.note}
                 onChange={(e) => setEditing({ ...editing, note: e.target.value })}
                 placeholder="比如：这是测试群 / 只给管理用"
               />
-            </div>
-          </Flex>
+            </Form.Item>
+          </Form>
         ) : null}
       </Drawer>
     </Flex>

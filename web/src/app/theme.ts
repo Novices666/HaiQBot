@@ -1,0 +1,98 @@
+/**
+ * 主题：双算法 + 统一 token。字体走「自托管优先、系统字体兜底」的栈。
+ *
+ * 一条纪律（吃过亏）：**品牌色是作者的决定，不是我的**。
+ * 所以 colorPrimary 保持项目原来的 #1677FF 不动；只有「文字压在浅底上」的场景
+ * （链接、菜单选中、Tab 选中）才换成同色系压深一档的 #0958d9 —— 那是为了对比度，
+ * 不是为了换风格。填充色（按钮底、开关轨道）继续用品牌色。
+ *
+ * 如果你更想要严格 AA（白字压按钮 ≥4.5:1），把 LIGHT.primary 也改成 "#0958d9" 即可，
+ * 代价是整站主色偏navy。
+ */
+import { theme as antdTheme, type ThemeConfig } from "antd";
+
+export type ThemeMode = "light" | "dark";
+
+const KEY = "haiq-theme";
+
+export function readTheme(): ThemeMode {
+  const saved = localStorage.getItem(KEY);
+  if (saved === "dark" || saved === "light") return saved;
+  // 没存过就跟着系统走，别在深色系统上甩一张白板
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+export function saveTheme(mode: ThemeMode): void {
+  localStorage.setItem(KEY, mode);
+  document.documentElement.style.colorScheme = mode;
+  // 给 CSS 一个选择器抓手：预设标签的深色字只能按主题分别覆盖
+  document.documentElement.dataset.theme = mode;
+}
+
+/** 品牌色（填充）与墨水色（文字）分开：填充保持原品牌，墨水按对比度取。 */
+export function brandColors(mode: ThemeMode) {
+  return mode === "dark"
+    ? {
+        primary: "#1677FF",
+        ink: "#69b1ff", // 压在 #141414 上 8.3:1
+        error: "#ff7875",
+        success: "#73d13d",
+        warning: "#ffc53d",
+      }
+    : {
+        primary: "#1677FF",
+        ink: "#0958d9", // 压在白底上 5.6:1
+        error: "#cf1322",
+        success: "#237804",
+        warning: "#874d00", // antd 默认 #faad14 当文字只有 1.9:1
+      };
+}
+
+export function buildTheme(mode: ThemeMode): ThemeConfig {
+  const dark = mode === "dark";
+  const brand = brandColors(mode);
+  return {
+    algorithm: dark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+    token: {
+      colorPrimary: brand.primary,
+      // 语义色只改「当文字用」的那几个：antd 默认红 #ff4d4f 在白底只有 3.3:1
+      colorError: brand.error,
+      colorSuccess: brand.success,
+      colorWarning: brand.warning,
+      colorLink: brand.ink,
+      borderRadius: 8,
+      // 正文基线 14px：13 在高分屏上偏挤，10–11px 直接不合格
+      fontSize: 14,
+      fontSizeSM: 13,
+      // 次级文字默认 0.45 透明度 ≈3.4:1，压到能过 4.5:1 的灰
+      colorTextSecondary: dark ? "rgba(255,255,255,0.72)" : "#595959",
+      colorTextDescription: dark ? "rgba(255,255,255,0.62)" : "#6b6b6b",
+      controlHeight: 36,
+      // Inter / JetBrains Mono 由 main.tsx 自托管引入（latin 子集）；
+      // 中文交给系统字体栈，避免把 MB 级 CJK 字体塞进产物。
+      fontFamily:
+        '"Inter",-apple-system,"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif',
+      fontFamilyCode: '"JetBrains Mono","Cascadia Code",Consolas,"Courier New",monospace',
+    },
+    components: {
+      Layout: {
+        headerHeight: 56,
+        headerPadding: "0 24px",
+        // antd 默认顶栏 #001529、侧栏 #001529 是「深色导航」预设，
+        // 我们的顶栏和侧栏都放深色文字，必须显式给浅底（暗色下同色，不能一个深蓝一个近黑）。
+        headerBg: dark ? "#141414" : "#fff",
+        siderBg: dark ? "#141414" : "#fff",
+      },
+      // 只把「选中文字」压深；底色、缩进、圆角都交回 antd 默认 —— 那是你原来的样子
+      Menu: { itemHeight: 40, itemSelectedColor: brand.ink },
+      Tabs: {
+        itemSelectedColor: brand.ink,
+        itemHoverColor: brand.ink,
+        itemActiveColor: brand.ink,
+      },
+      Card: { paddingLG: 20 },
+      Table: { headerBg: dark ? "#1d1d1d" : "#fafafa" },
+      Collapse: { headerPadding: "10px 14px" },
+    },
+  };
+}

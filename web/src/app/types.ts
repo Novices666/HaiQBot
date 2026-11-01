@@ -1,4 +1,4 @@
-/** 面板 v2 用到的后端响应形状（与 webui/api/*.py 一一对应，字段名以 Python 侧为准）。 */
+/** 后端响应形状（与 webui/api/*.py 一一对应，字段名以 Python 侧为准）。 */
 
 export type AuditRow = {
   id?: number;
@@ -121,6 +121,8 @@ export type ConfigField = {
   choices: string[];
   readonly: boolean;
   help: string;
+  /** 值从哪来：`file` 文件里写了 / `env` 环境变量覆盖 / `default` 用默认值。 */
+  source?: "file" | "env" | "default";
   value: unknown;
 };
 

@@ -4,6 +4,8 @@ import {
   Alert,
   Button,
   Card,
+  Divider,
+  Empty,
   Flex,
   Image,
   Input,
@@ -130,7 +132,7 @@ function LogsTab() {
         }}
       >
         {rows.length === 0 ? (
-          <Typography.Text type="secondary">还没有日志。</Typography.Text>
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有日志：机器人收到消息或被访问接口后才会写日志" />
         ) : (
           rows.map((row) => (
             <div key={row.seq} style={{ display: "flex", gap: 8 }}>
@@ -143,7 +145,7 @@ function LogsTab() {
               >
                 {row.level}
               </Tag>
-              <span style={{ wordBreak: "break-all" }}>{text(row.event)}</span>
+              <span style={{ overflowWrap: "anywhere" }}>{text(row.event)}</span>
             </div>
           ))
         )}
@@ -235,8 +237,21 @@ function MediaTab() {
             size="small"
             style={{ width: 208 }}
             cover={
-              <div style={{ height: 132, overflow: "hidden", background: "rgba(0,0,0,0.03)" }}>
-                <Image src={row.url} height={132} width={208} style={{ objectFit: "cover" }} />
+              <div
+                style={{
+                  height: 132,
+                  overflow: "hidden",
+                  // 图片没加载出来时的占位：用 antd 的填充色变量，暗色主题下才看得见
+                  background: "var(--ant-color-fill-quaternary)",
+                }}
+              >
+                <Image
+                  src={row.url}
+                  alt={`${row.plugin_id ?? "媒体"} 生成的图片，${fmtTime(row.ts)}`}
+                  height={132}
+                  width={208}
+                  style={{ objectFit: "cover" }}
+                />
               </div>
             }
             actions={[
@@ -248,12 +263,14 @@ function MediaTab() {
             <Typography.Text style={{ fontSize: 12 }} code>
               {row.plugin_id ?? "—"}
             </Typography.Text>
-            <div style={{ fontSize: 11, opacity: 0.65 }}>{fmtTime(row.ts)}</div>
+            <Typography.Text type="secondary" style={{ fontSize: 12, display: "block" }}>
+              {fmtTime(row.ts)}
+            </Typography.Text>
           </Card>
         ))}
       </Flex>
       {(media.data ?? []).length === 0 && !media.error ? (
-        <Typography.Text type="secondary">媒体库还是空的。</Typography.Text>
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="媒体库还是空的：机器人发过图或被清理后才会出现" />
       ) : null}
     </Flex>
   );
@@ -366,7 +383,7 @@ function InvocationTab() {
         <Button size="small" onClick={() => rows.reload()}>
           刷新
         </Button>
-        <span style={{ color: "#d9d9d9" }}>|</span>
+        <Divider type="vertical" />
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           清理
         </Typography.Text>

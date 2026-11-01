@@ -6,7 +6,7 @@
  * - 写入只进 vault，不会回写 haiq.toml —— 配置里永远只有 `*_ref`。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Card, Flex, Input, Modal, Space, Table, Tag, Typography, message } from "antd";
+import { Alert, Button, Card, Flex, Form, Input, Modal, Space, Table, Tag, Typography, message } from "antd";
 import { del, get, post } from "../../api";
 import { usePoll } from "../lib";
 
@@ -195,7 +195,10 @@ export default function SecretsPage() {
           <Typography.Text type="secondary">
             后端：<Typography.Text code>{vault?.backend || "—"}</Typography.Text>
           </Typography.Text>
-          <Typography.Text type="secondary" ellipsis style={{ maxWidth: 520 }}>
+          <Typography.Text
+            type="secondary"
+            style={{ maxWidth: "100%", minWidth: 0, overflowWrap: "anywhere" }}
+          >
             文件：<Typography.Text code>{vault?.path || "—"}</Typography.Text>
           </Typography.Text>
         </Flex>
@@ -274,7 +277,7 @@ export default function SecretsPage() {
                     <Typography.Text
                       code
                       copyable={{ text: value }}
-                      style={{ fontSize: 12, wordBreak: "break-all" }}
+                      style={{ fontSize: 12, overflowWrap: "anywhere" }}
                     >
                       {value}
                     </Typography.Text>
@@ -325,40 +328,42 @@ export default function SecretsPage() {
         cancelText="取消"
         destroyOnHidden
       >
-        <Flex vertical gap={12}>
-          <div>
-            <Typography.Text type="secondary">键名（槽位名如 painter.api_key，或 vault 键名）</Typography.Text>
+        <Form layout="vertical" component={false}>
+          <Form.Item
+            label="键名"
+            htmlFor="sec-key"
+            required
+            extra="槽位名如 painter.api_key，或直接的 vault 键名"
+          >
             <Input
+              id="sec-key"
               value={editing?.key ?? ""}
               disabled={!editing?.isNew}
               placeholder="painter.api_key 或 HAIQ_XXX"
               onChange={(event) => setEditing((prev) => (prev ? { ...prev, key: event.target.value } : prev))}
             />
-          </div>
-          <div>
-            <Typography.Text type="secondary">值（写入后不再回显，除非点「查看」）</Typography.Text>
+          </Form.Item>
+          <Form.Item label="值" htmlFor="sec-value" required extra="写入后不再回显，除非点「查看」">
             <Input.Password
+              id="sec-value"
               value={editing?.value ?? ""}
               placeholder="粘贴密钥"
               autoComplete="new-password"
               onChange={(event) => setEditing((prev) => (prev ? { ...prev, value: event.target.value } : prev))}
             />
-          </div>
+          </Form.Item>
           {editing?.isNew ? (
-            <div>
-              <Typography.Text type="secondary">
-                没被插件声明的裸键（自定义），直接填名字即可
-              </Typography.Text>
-              <Space wrap style={{ marginTop: 6 }}>
+            <Form.Item label="一键填入常用键名" extra="没被插件声明的裸键（自定义），直接填名字即可">
+              <Space wrap>
                 {(suggest ? [suggest] : []).map((item) => (
                   <Button key={item} size="small" onClick={() => setEditing((prev) => (prev ? { ...prev, key: item } : prev))}>
                     {item}
                   </Button>
                 ))}
               </Space>
-            </div>
+            </Form.Item>
           ) : null}
-        </Flex>
+        </Form>
       </Modal>
 
       <Modal
@@ -371,37 +376,56 @@ export default function SecretsPage() {
         cancelText="取消"
         destroyOnHidden
       >
-        <Flex vertical gap={12}>
-          <Alert
-            type="warning"
-            showIcon
-            message="换完之后要改环境变量并重启"
-            description="当前进程仍用旧口令派生密钥，不重启的话后续读取会失败。"
-          />
-          <Input.Password
-            placeholder="当前口令"
-            value={oldPass}
-            autoComplete="current-password"
-            onChange={(event) => setOldPass(event.target.value)}
-          />
-          <Input.Password
-            placeholder="新口令（至少 12 位）"
-            value={newPass}
-            autoComplete="new-password"
-            onChange={(event) => setNewPass(event.target.value)}
-          />
-          <Input.Password
-            placeholder="再输一次新口令"
-            value={againPass}
-            autoComplete="new-password"
-            onChange={(event) => setAgainPass(event.target.value)}
-          />
-          <Input
-            placeholder="可选：自定义键名（如 HAIQ_IMAGE_API_KEY）"
-            value={suggest}
-            onChange={(event) => setSuggest(event.target.value)}
-          />
-        </Flex>
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="换完之后要改环境变量并重启"
+          description="当前进程仍用旧口令派生密钥，不重启的话后续读取会失败。"
+        />
+        <Form layout="vertical" component={false}>
+          <Form.Item label="当前口令" htmlFor="rot-old" required>
+            <Input.Password
+              id="rot-old"
+              placeholder="当前 vault 口令"
+              value={oldPass}
+              autoComplete="current-password"
+              onChange={(event) => setOldPass(event.target.value)}
+            />
+          </Form.Item>
+          <Form.Item label="新口令" htmlFor="rot-new" required extra="至少 12 位；换完旧的立即失效">
+            <Input.Password
+              id="rot-new"
+              placeholder="新口令"
+              value={newPass}
+              autoComplete="new-password"
+              onChange={(event) => setNewPass(event.target.value)}
+            />
+          </Form.Item>
+          <Form.Item
+            label="确认新口令"
+            htmlFor="rot-again"
+            required
+            dependencies={[]}
+            rules={[{ validator: async () => (newPass === againPass ? undefined : Promise.reject(new Error("两次输入不一致"))) }]}
+          >
+            <Input.Password
+              id="rot-again"
+              placeholder="再输一次新口令"
+              value={againPass}
+              autoComplete="new-password"
+              onChange={(event) => setAgainPass(event.target.value)}
+            />
+          </Form.Item>
+          <Form.Item label="可选：自定义键名" htmlFor="rot-key" extra="换成新键名时填，比如 HAIQ_IMAGE_API_KEY">
+            <Input
+              id="rot-key"
+              placeholder="留空则沿用原键名"
+              value={suggest}
+              onChange={(event) => setSuggest(event.target.value)}
+            />
+          </Form.Item>
+        </Form>
       </Modal>
     </Flex>
   );

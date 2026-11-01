@@ -1,14 +1,17 @@
 /** 插件与能力：装载状态、命令、按 config_schema 渲染配置表单、凭据是否已设置。 */
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Alert,
   Button,
   Card,
+  Col,
+  Collapse,
   Descriptions,
   Flex,
   Form,
   Input,
   InputNumber,
+  Row,
   Select,
   Space,
   Switch,
@@ -31,17 +34,88 @@ import type {
 
 const ROLE_NAME: Record<number, string> = { 1: "群友", 2: "管理员", 3: "群主" };
 
+/** 前缀 → 中文名。只给确定的那几个，其余原样显示前缀，不硬编一套假分类。 */
+const PREFIX_LABEL: Record<string, string> = {
+  image: "生图",
+  chat: "对话",
+  moderation: "内容审核",
+  moderate: "内容审核",
+  router: "路由",
+  guard: "风控",
+  media: "媒体",
+  log: "日志",
+  onebot: "OneBot",
+  webui: "面板",
+};
+
+type SchemaGroup = { key: string; label: string; fields: SchemaField[] };
+
+/**
+ * 把 config_schema 分堆。
+ *
+ * 为什么必须分：assistant 一个插件就有 29 项配置，平铺出来是一堵墙。
+ * 分堆规则只依赖插件作者自己起的字段前缀（`chat_*` / `image_*` / `moderation_*`），
+ * 也就是「作者本来怎么想的功能划分」，不是我另造一套分类。
+ * 组数过多时，只有 1 项的那些零散组并进「其他」，免得出现 8 个各含一项的标题。
+ */
+function groupSchema(schema: SchemaField[]): SchemaGroup[] {
+  if (schema.length === 0) return [];
+  const buckets = new Map<string, SchemaField[]>();
+  for (const field of schema) {
+    const cut = field.key.indexOf("_");
+    const prefix = cut > 0 ? field.key.slice(0, cut) : "general";
+    buckets.set(prefix, [...(buckets.get(prefix) ?? []), field]);
+  }
+  const groups: SchemaGroup[] = [];
+  for (const [prefix, fields] of buckets) {
+    const label = PREFIX_LABEL[prefix] ?? prefix;
+    // 不同前缀可能落到同一个中文标签（moderation_* 和 moderate_*），必须并成一组，
+    // 否则会出现两个都叫「内容审核」的面板。
+    const same = groups.find((group) => group.label === label);
+    if (same) same.fields.push(...fields);
+    else groups.push({ key: prefix, label, fields: [...fields] });
+  }
+  if (groups.length <= 4) return groups;
+  const kept = groups.filter((group) => group.fields.length > 1);
+  const loose = groups.filter((group) => group.fields.length === 1).flatMap((group) => group.fields);
+  return loose.length > 0 ? [...kept, { key: "other", label: "其他", fields: loose }] : kept;
+}
+
+/** 一个字段 → 一个控件。保持原样，只把容器从「一条横线」换成分栏栅格。 */
+function FieldControl({
+  field,
+  plugin,
+  collect,
+}: {
+  field: SchemaField;
+  plugin: PluginRow;
+  collect: () => Record<string, unknown>;
+}) {
+  if (field.dynamic) return <LiveField pluginId={plugin.id} field={field} collect={collect} />;
+  if (field.choices && field.choices.length > 0)
+    return <Select options={field.choices.map((c) => ({ value: c, label: c }))} allowClear />;
+  if (field.kind === "bool") return <Switch />;
+  if (field.kind === "int" || field.kind === "float") return <InputNumber style={{ width: "100%" }} />;
+  return <Input />;
+}
+
 function SchemaForm({ plugin, onSaved }: { plugin: PluginRow; onSaved: () => void }) {
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
   // 稳定引用：LiveField 靠它取「还没保存」的值（改了 base_url 不必先保存才能拉列表）
   const collect = useCallback(() => form.getFieldsValue() as Record<string, unknown>, [form]);
   const schema = plugin.config_schema ?? [];
-  const initial: Record<string, unknown> = {};
-  for (const field of schema) {
-    const current = plugin.config?.[field.key];
-    initial[field.key] = current !== undefined ? current : field.default;
-  }
+
+  const initial = useMemo(() => {
+    const values: Record<string, unknown> = {};
+    for (const field of schema) {
+      const current = plugin.config?.[field.key];
+      values[field.key] = current !== undefined ? current : field.default;
+    }
+    return values;
+  }, [schema, plugin.config]);
+
+  const groups = useMemo(() => groupSchema(schema), [schema]);
 
   const save = async (values: Record<string, unknown>) => {
     setSaving(true);
@@ -60,35 +134,42 @@ function SchemaForm({ plugin, onSaved }: { plugin: PluginRow; onSaved: () => voi
     return <Typography.Text type="secondary">该插件没有声明可配置项（自由配置请在配置中心改原始 TOML）。</Typography.Text>;
   }
 
-  return (
-    <Form form={form} layout="vertical" initialValues={initial} onFinish={save} size="small">
-      <Flex wrap gap={16}>
-        {schema.map((field: SchemaField) => (
-          <Form.Item
-            key={field.key}
-            name={field.key}
-            label={field.label ?? field.key}
-            extra={field.description}
-            style={{ minWidth: 260, flex: "1 1 260px", marginBottom: 12 }}
-          >
-            {field.dynamic ? (
-              <LiveField pluginId={plugin.id} field={field} collect={collect} />
-            ) : field.choices && field.choices.length > 0 ? (
-              <Select
-                options={field.choices.map((c) => ({ value: c, label: c }))}
-                allowClear
-              />
-            ) : field.kind === "bool" ? (
-              <Switch />
-            ) : field.kind === "int" || field.kind === "float" ? (
-              <InputNumber style={{ width: "100%" }} />
-            ) : (
-              <Input />
-            )}
+  const fields = (list: SchemaField[]) => (
+    <Row gutter={[16, 0]}>
+      {list.map((field) => (
+        <Col key={field.key} xs={24} md={12} xxl={8}>
+          <Form.Item name={field.key} label={field.label ?? field.key} extra={field.description} style={{ marginBottom: 14 }}>
+            <FieldControl field={field} plugin={plugin} collect={collect} />
           </Form.Item>
-        ))}
-      </Flex>
-      <Button type="primary" htmlType="submit" loading={saving}>
+        </Col>
+      ))}
+    </Row>
+  );
+
+  const single = groups.length <= 1;
+
+  return (
+    <Form form={form} layout="vertical" initialValues={initial} onFinish={save}>
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+        共 {schema.length} 项
+        {single ? "" : `，按功能分成 ${groups.length} 组（点标题展开）`}。改完点最下面的保存。
+      </Typography.Paragraph>
+
+      {single ? (
+        fields(schema)
+      ) : (
+        <Collapse
+          size="small"
+          defaultActiveKey={[groups[0].key]}
+          items={groups.map((group) => ({
+            key: group.key,
+            label: `${group.label}（${group.fields.length}）`,
+            children: fields(group.fields),
+          }))}
+        />
+      )}
+
+      <Button type="primary" htmlType="submit" loading={saving} style={{ marginTop: 14 }}>
         保存插件配置
       </Button>
     </Form>
@@ -133,6 +214,8 @@ function SecretsView({ slots }: { slots: SecretSlot[] }) {
 export default function PluginsPage() {
   const { data, error, reload } = usePoll<PluginRow[]>("/api/plugins");
   const [busy, setBusy] = useState<string | null>(null);
+  /** 一次只展开一个插件：否则 5 个插件各展开一份配置，页面瞬间很长。 */
+  const [openRow, setOpenRow] = useState<string | null>(null);
 
   const toggle = async (row: PluginRow) => {
     setBusy(row.id);
@@ -184,72 +267,83 @@ export default function PluginsPage() {
           dataSource={data ?? []}
           pagination={false}
           expandable={{
+            // 手风琴：展开的配置是表单，同时开多个等于把页面拉成一条长卷
+            expandedRowKeys: openRow ? [openRow] : [],
+            onExpandedRowsChange: (keys) => {
+              const next = (keys as string[]).filter((k) => k !== openRow);
+              setOpenRow(next[0] ?? null);
+            },
             expandedRowRender: (row) => (
-              <Tabs
-                size="small"
-                items={[
-                  {
-                    key: "schema",
-                    label: "配置",
-                    children: <SchemaForm plugin={row} onSaved={reload} />,
-                  },
-                  {
-                    key: "commands",
-                    label: `命令（${row.commands?.length ?? 0}）`,
-                    children: (
-                      <Table
-                        size="small"
-                        rowKey={(c) => `${c.plugin}:${c.command}`}
-                        pagination={false}
-                        dataSource={row.commands ?? []}
-                        locale={{ emptyText: "没有注册命令（纯消息钩子或未加载）" }}
-                        columns={[
-                          { title: "命令", dataIndex: "command", width: 140 },
-                          {
-                            title: "别名",
-                            dataIndex: "aliases",
-                            width: 180,
-                            render: (v: string[]) => (v?.length ? v.join(" / ") : "—"),
-                          },
-                          { title: "说明", dataIndex: "description" },
-                          {
-                            title: "权限",
-                            dataIndex: "min_role",
-                            width: 100,
-                            render: (v: number) => ROLE_NAME[v] ?? text(v),
-                          },
-                        ]}
-                      />
-                    ),
-                  },
-                  {
-                    key: "secrets",
-                    label: `凭据（${row.secrets?.length ?? 0}）`,
-                    children: <SecretsView slots={row.secrets ?? []} />,
-                  },
-                  {
-                    key: "meta",
-                    label: "元信息",
-                    children: (
-                      <Descriptions size="small" column={2} bordered>
-                        <Descriptions.Item label="ID">{row.id}</Descriptions.Item>
-                        <Descriptions.Item label="来源">{text(row.source)}</Descriptions.Item>
-                        <Descriptions.Item label="版本">{text(row.version)}</Descriptions.Item>
-                        <Descriptions.Item label="能力">
-                          {row.capabilities?.length ? row.capabilities.join(", ") : "—"}
-                        </Descriptions.Item>
-                        <Descriptions.Item label="提供">{text(row.provides)}</Descriptions.Item>
-                        <Descriptions.Item label="依赖">
-                          {row.requires?.length ? row.requires.join(", ") : "—"}
-                        </Descriptions.Item>
-                        <Descriptions.Item label="规则" span={2}>
-                          {row.rules?.length ? row.rules.join(" · ") : "—"}
-                        </Descriptions.Item>
-                      </Descriptions>
-                    ),
-                  },
-                ]}
-              />
+              // 关键：展开行在 max-content 的表格里，宽度会被撑到上万像素，
+              // 于是 flex 布局的所有字段全排成一行。这里给死宽度，把它掰回正常栏宽。
+              <div style={{ width: "min(920px, calc(100vw - 56px))" }}>
+                <Tabs
+                  size="small"
+                  items={[
+                    {
+                      key: "schema",
+                      label: `配置（${row.config_schema?.length ?? 0}）`,
+                      children: <SchemaForm plugin={row} onSaved={reload} />,
+                    },
+                    {
+                      key: "commands",
+                      label: `命令（${row.commands?.length ?? 0}）`,
+                      children: (
+                        <Table
+                          size="small"
+                          scroll={{ x: "max-content" }}
+                          rowKey={(c) => `${c.plugin}:${c.command}`}
+                          pagination={false}
+                          dataSource={row.commands ?? []}
+                          locale={{ emptyText: "没有注册命令（纯消息钩子或未加载）" }}
+                          columns={[
+                            { title: "命令", dataIndex: "command", width: 140 },
+                            {
+                              title: "别名",
+                              dataIndex: "aliases",
+                              width: 180,
+                              render: (v: string[]) => (v?.length ? v.join(" / ") : "—"),
+                            },
+                            { title: "说明", dataIndex: "description" },
+                            {
+                              title: "权限",
+                              dataIndex: "min_role",
+                              width: 100,
+                              render: (v: number) => ROLE_NAME[v] ?? text(v),
+                            },
+                          ]}
+                        />
+                      ),
+                    },
+                    {
+                      key: "secrets",
+                      label: `凭据（${row.secrets?.length ?? 0}）`,
+                      children: <SecretsView slots={row.secrets ?? []} />,
+                    },
+                    {
+                      key: "meta",
+                      label: "元信息",
+                      children: (
+                        <Descriptions size="small" column={{ xs: 1, sm: 1, md: 2 }} bordered>
+                          <Descriptions.Item label="ID">{row.id}</Descriptions.Item>
+                          <Descriptions.Item label="来源">{text(row.source)}</Descriptions.Item>
+                          <Descriptions.Item label="版本">{text(row.version)}</Descriptions.Item>
+                          <Descriptions.Item label="能力">
+                            {row.capabilities?.length ? row.capabilities.join(", ") : "—"}
+                          </Descriptions.Item>
+                          <Descriptions.Item label="提供">{text(row.provides)}</Descriptions.Item>
+                          <Descriptions.Item label="依赖">
+                            {row.requires?.length ? row.requires.join(", ") : "—"}
+                          </Descriptions.Item>
+                          <Descriptions.Item label="规则" span={2}>
+                            {row.rules?.length ? row.rules.join(" · ") : "—"}
+                          </Descriptions.Item>
+                        </Descriptions>
+                      ),
+                    },
+                  ]}
+                />
+              </div>
             ),
           }}
           columns={[
@@ -260,7 +354,7 @@ export default function PluginsPage() {
               render: (v: string, row) => (
                 <Space direction="vertical" size={0}>
                   <Typography.Text strong>{row.name || v}</Typography.Text>
-                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                     {v} · {text(row.version)}
                   </Typography.Text>
                 </Space>
@@ -284,7 +378,6 @@ export default function PluginsPage() {
               render: (_v, row) => (
                 <Space size={4}>
                   <Switch
-                    size="small"
                     checked={row.enabled}
                     loading={busy === row.id}
                     onChange={() => void toggle(row)}

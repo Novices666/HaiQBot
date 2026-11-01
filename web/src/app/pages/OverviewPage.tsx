@@ -13,6 +13,7 @@ import {
   Tag,
   Tooltip as AntTooltip,
   Typography,
+  theme,
 } from "antd";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { fmtDuration, fmtTime, text, usePoll } from "../lib";
@@ -20,7 +21,12 @@ import type { AuditRow, Overview } from "../types";
 
 type Sample = { t: string; events: number; handled: number };
 
+/** 四张统计卡共用同一套样式：原来「运行时长」单写成 20px、其余用默认，看着像错版。
+ *  字号不再自己定，交回 antd 默认（24）—— 我只统一「对齐」这一件事。 */
+const STAT_STYLE = { fontVariantNumeric: "tabular-nums" as const };
+
 export default function OverviewPage() {
+  const { token } = theme.useToken();
   const { data, error } = usePoll<Overview>("/api/overview", 4000);
   const [series, setSeries] = useState<Sample[]>([]);
   const lastSample = useRef<Overview | null>(null);
@@ -42,29 +48,30 @@ export default function OverviewPage() {
     () => Object.values(data?.platforms ?? {}).filter((p) => p.health?.connected === true).length,
     [data],
   );
+  const platformCount = Object.keys(data?.platforms ?? {}).length;
 
   return (
     <Flex vertical gap={16}>
       {error ? <Alert type="error" showIcon message={error.message} description={error.hint} /> : null}
 
-      <Row gutter={16}>
+      <Row gutter={[16, 16]}>
         <Col xs={12} sm={12} lg={6}>
           <Card>
             <Statistic
               title="运行时长"
               value={fmtDuration(data?.runtime.uptime_seconds)}
-              valueStyle={{ fontSize: 20, whiteSpace: "nowrap" }}
+              valueStyle={{ ...STAT_STYLE, whiteSpace: "nowrap" }}
             />
           </Card>
         </Col>
         <Col xs={12} sm={12} lg={6}>
           <Card>
-            <Statistic title="累计事件" value={data?.runtime.events_total ?? 0} />
+            <Statistic title="累计事件" value={data?.runtime.events_total ?? 0} valueStyle={STAT_STYLE} />
           </Card>
         </Col>
         <Col xs={12} sm={12} lg={6}>
           <Card>
-            <Statistic title="已处理" value={data?.runtime.handled_total ?? 0} />
+            <Statistic title="已处理" value={data?.runtime.handled_total ?? 0} valueStyle={STAT_STYLE} />
           </Card>
         </Col>
         <Col xs={12} sm={12} lg={6}>
@@ -72,8 +79,8 @@ export default function OverviewPage() {
             <Statistic
               title="平台在线"
               value={online}
-              suffix={`/ ${Object.keys(data?.platforms ?? {}).length}`}
-              valueStyle={{ color: online > 0 ? "#3f8600" : "#cf1322" }}
+              suffix={`/ ${platformCount}`}
+              valueStyle={{ ...STAT_STYLE, color: online > 0 ? token.colorSuccess : token.colorError }}
             />
           </Card>
         </Col>
@@ -82,33 +89,36 @@ export default function OverviewPage() {
       <Card title="事件吞吐（本页面采样）" size="small">
         <div style={{ height: 200 }}>
           {series.length < 2 ? (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="等两次采样…" />
+            <Flex align="center" justify="center" style={{ height: "100%" }}>
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="等两次采样…" />
+            </Flex>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={series} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="v2-events" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#1677FF" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="#1677FF" stopOpacity={0.02} />
+                  <linearGradient id="event-area-fill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={token.colorPrimary} stopOpacity={0.32} />
+                    <stop offset="100%" stopColor={token.colorPrimary} stopOpacity={0.02} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.15} />
-                <XAxis dataKey="t" fontSize={11} tickLine={false} />
-                <YAxis fontSize={11} tickLine={false} allowDecimals={false} />
-                <Tooltip />
+                <CartesianGrid strokeDasharray="3 3" stroke={token.colorBorderSecondary} />
+                {/* 轴标签 12px：11px 在高分屏上已经糊成一团 */}
+                <XAxis dataKey="t" fontSize={12} tickLine={false} stroke={token.colorTextTertiary} />
+                <YAxis fontSize={12} tickLine={false} allowDecimals={false} stroke={token.colorTextTertiary} />
+                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                 <Area
                   type="monotone"
                   dataKey="events"
                   name="事件总数"
-                  stroke="#1677FF"
+                  stroke={token.colorPrimary}
                   strokeWidth={2}
-                  fill="url(#v2-events)"
+                  fill="url(#event-area-fill)"
                 />
                 <Area
                   type="monotone"
                   dataKey="handled"
                   name="已处理"
-                  stroke="#52C41A"
+                  stroke={token.colorSuccess}
                   strokeWidth={1.5}
                   fillOpacity={0}
                 />
@@ -118,10 +128,10 @@ export default function OverviewPage() {
         </div>
       </Card>
 
-      <Row gutter={16}>
+      <Row gutter={[16, 16]}>
         <Col xs={24} lg={12}>
           <Card title="平台连接" size="small">
-            {Object.keys(data?.platforms ?? {}).length === 0 ? (
+            {platformCount === 0 ? (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有启用的平台适配器" />
             ) : (
               <Descriptions size="small" column={1} bordered>
@@ -171,7 +181,8 @@ export default function OverviewPage() {
         <Table<AuditRow>
           scroll={{ x: "max-content" }}
           size="small"
-          rowKey={(_row, i) => String(i)}
+          // 审计行没有业务主键：用时间戳 + 序号，避免纯索引在插入时错位
+          rowKey={(row, index) => `${row.ts}-${index}`}
           pagination={false}
           dataSource={data?.recent_audit ?? []}
           locale={{ emptyText: "还没有写操作记录" }}

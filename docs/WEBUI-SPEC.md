@@ -66,12 +66,12 @@ GET  /api/auth/session                 → 当前会话信息（前端启动时�
 ```
 web/src/
   api.ts            统一信封 + CSRF + 401 跳登录
-  main.tsx          入口（只渲染 V2App）
-  v2/App.tsx        登录门 + 左侧导航（含插件自注册页）+ 顶栏（写权限 / 亮暗切换）
-  v2/theme.ts       Ant Design 主题 + 亮暗模式（localStorage: haiq-theme）
-  v2/lib.ts         usePoll（轮询 hook）/ 时间与时长格式化
-  v2/panels.tsx     PanelPage 渲染器（只认 4 类 section，未知降级为只读 JSON）
-  v2/pages/         Overview、Plugins、Workbench、Config、Observability、Channels、Secrets、Jobs
+  main.tsx          入口（antd reset + 自托管字体 + 渲染 App）
+  app/App.tsx       登录门 + 左侧导航（含插件自注册页）+ 顶栏（写权限 / 亮暗切换）
+  app/theme.ts      Ant Design 主题 + 亮暗模式（localStorage: haiq-theme；色值按 WCAG AA 算过）
+  app/lib.ts        usePoll（轮询 hook）/ 时间与时长格式化
+  app/panels.tsx    PanelPage 渲染器（只认 4 类 section，未知降级为只读 JSON）
+  app/pages/        Overview、Plugins、Workbench、Config、Observability、Channels、Secrets、Jobs
 ```
 
 开发：`cd web && npm run dev`（5173，`/api` 与 `/i` 代理到 8080）
@@ -84,10 +84,35 @@ web/src/
 
 | 宽度 | 导航 | 头部 | 内容内边距 | 表格 |
 |---|---|---|---|---|
-| ≥ 768px | 固定侧栏 208px（可折叠到 56px） | 64px | 20px | 按列宽横向滚动 |
-| < 768px | 侧栏隐藏，改为**抽屉**（左上角 ☰） | 48px，标题省略号截断 | 12px | 每个表格自带滚动容器，**页面不横向溢出** |
+| ≥ 768px | 固定侧栏 208px（可折叠到 80px） | 56px | 20px | 按列宽横向滚动 |
+| < 768px | 侧栏隐藏，改为**抽屉** 264px（左上角菜单图标按钮，44×44） | 56px，标题省略号截断 | 12px | 每个表格自带滚动容器，**页面不横向溢出** |
 
-登录页卡片宽度是 `min(380px, 100%)` —— 320px 宽的手机上也撑不满屏、不溢出。
+登录页卡片宽度是 `min(384px, 100%)` —— 320px 宽的手机上也撑不满屏、不溢出。
+
+### 视觉与可访问性基线
+
+这些数字是**实测**出来的，不是拍脑袋定的；改主题前先看这张表。
+
+| 项目 | 基线 | 为什么 |
+|---|---|---|
+| 正文字号 | 14px（antd `fontSize`） | 13px 在高分屏上偏挤，10–11px 直接不合格 |
+| 次级文字 | 12–13px | 下限 12px |
+| 控件高度 | 桌面 36px，手机 44px | 桌面鼠标可点，手机触控线 |
+| 可点目标 | ≥ 24×24（WCAG 2.2 AA） | 表格展开图标用小号按钮时都不能低于这条 |
+| 主色（填充） | `#1677FF`（品牌色，不动） | 按钮底、开关轨道、选中底色 |
+| 墨水色（文字） | 亮 `#0958d9` / 暗 `#69b1ff` | 链接、菜单选中、Tab 选中——这些是「文字压浅底」，必须 ≥4.5:1 |
+| 语义色 | 亮 红`#cf1322` 绿`#237804` 黄`#874d00` | antd 默认当文字用只有 1.9–3.3:1 |
+| 预设标签 | 亮色下统一压深（`App.tsx` 里按主题覆盖） | antd 预设色文字（绿 `#389e0d` 等）只有 3.4:1 |
+| 焦点 | 2px 焦点环 + 换页后焦点落到 `main` | 键盘用户不必每次从侧栏 Tab 一遍 |
+| 图标 | `@ant-design/icons`（官方图标库，跟随 antd 版本） | 不手写 SVG、不用 emoji/字符 |
+
+**已知偏差**：主按钮是白字压品牌色 `#1677FF`，对比度 4.10:1（差 0.4）。
+品牌色优先于严格 AA，这里刻意保留；如果你的标准更严，把 `theme.ts` 里 `LIGHT.primary` 改成 `#0958d9` 即可全站达标。
+
+
+已验证范围（亮/暗双主题 × 8 页 × 桌面 879px 与手机 375px 实测）：
+无 <12px 文字、无 <4.5:1 的文字、无页面级横向溢出、无 <24px 的可点目标（Select 内部输入框等 antd 私有节点不计）。
+
 
 **手机能打开面板的前提是面板能被手机访问到**。默认 `[webui] host = "127.0.0.1"`
 只监听本机回环，手机连不上，响应式做得再好也看不到。两种做法：
@@ -110,10 +135,10 @@ web/src/
 - [x] `/i/*` 只按 media_id 查，不接受路径
 - [x] 登录限速 + 令牌轮换即时生效
 
-## 单面板（v1 已下线）
+## 单面板
 
-`/` 就是唯一面板（React 18 + Ant Design），旧的 v1 前端已整体删除：不再有 `pages/`、
-`components/`、`styles.css`，也不再有按路径分流。`/v2` 只是历史路径，前端会 `replaceState` 收敛到 `/`。
+`/` 就是唯一面板（React 18 + Ant Design），前端代码只有 `web/src/app/` 一套。开发阶段不留
+历史路径兼容：没有 `/v2` 之类的分流，也没有旧版 `pages/`、`components/`、`styles.css`。
 
 ## 插件自定义页（PanelPage）
 

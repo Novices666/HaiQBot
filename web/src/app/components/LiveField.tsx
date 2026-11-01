@@ -85,7 +85,7 @@ export default function LiveField({
           />
           {retry}
         </Space.Compact>
-        <Typography.Text type="danger" style={{ fontSize: 11 }}>
+        <Typography.Text type="danger" style={{ fontSize: 12 }}>
           {error ?? "拉取失败"}（可直接手填，或改完上面的地址再点刷新）
         </Typography.Text>
       </Flex>
@@ -113,7 +113,7 @@ export default function LiveField({
         />
         {retry}
       </Flex>
-      <Typography.Text type={error ? "danger" : "secondary"} style={{ fontSize: 11 }}>
+      <Typography.Text type={error ? "danger" : "secondary"} style={{ fontSize: 12 }}>
         {error ? `${error}（下面是上次拉到的列表）` : `接口返回 ${options.length} 个可选值`}
       </Typography.Text>
     </Flex>
