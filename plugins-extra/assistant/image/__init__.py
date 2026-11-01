@@ -41,8 +41,10 @@ def sub_config(config: Any, prefix: str = PREFIX) -> dict[str, Any]:
     items = dict(config or {})
     sub = {k[len(prefix) :]: v for k, v in items.items() if k.startswith(prefix)}
     # 内核的演示模式对所有插件统一下发同一个 `provider` 键（它不该认识
-    # image_/chat_ 这种前缀），所以这里让它生效。
-    if "provider" not in sub and "provider" in items:
+    # image_/chat_ 这种前缀）。**通用键优先**：否则用户在文件里存过的
+    # `image_provider = "openai_compat"` 会把演示下发的 mock 顶掉，
+    # 演示就还得去 vault 取 Key —— 而 demo 承诺的是「不需要口令」。
+    if "provider" in items:
         sub["provider"] = items["provider"]
     return sub
 
