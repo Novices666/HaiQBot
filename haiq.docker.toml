@@ -54,8 +54,12 @@ app_secret_ref = "HAIQ_QQ_APP_SECRET"
 [onebot]
 enabled = true
 mode = "client"
-# ←← 改成你的协议端容器名。它必须和 haiqbot 在同一个 Docker 网络里（见 compose.yaml）
-url = "ws://napcat:3001"
+# 协议端地址。容器里的 127.0.0.1 是**容器自己**。推荐留占位、由 .env 覆盖：
+#   HAIQ_ONEBOT_URL=ws://<协议端地址>      ← compose 的 env_file 会读进去，不进仓库
+# 也可以直接写死：同网络的容器名 / host.docker.internal / 公网 IP:端口。
+#   url = "ws://host.docker.internal:3001"                 （协议端在宿主机）
+#   url = "ws://<容器名>:3001"                             （同一 Docker 网络）
+url = "ws://host.docker.internal:3001"
 # mode = http / sse 时才用这一项
 http_api_url = "http://napcat:3000"
 webhook_path = "/onebot"

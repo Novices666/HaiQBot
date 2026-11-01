@@ -175,6 +175,12 @@ class HaiqConfig(BaseModel):
     # 不写进 haiq.toml，只是内存里的一个指针。
     config_path: Path | None = None
 
+    # 运行时元数据（同样不写进 haiq.toml）：面板据此区分「这个值来自文件 /
+    # 来自环境变量 / 只是默认值」。缺了它，容器里 data_dir 显示 /data 而文件写的是
+    # data，就会被当成"面板没按文件加载"。
+    env_overridden: list[str] = Field(default_factory=list)
+    file_keys: list[str] = Field(default_factory=list)
+
     @model_validator(mode="after")
     def _derive_data_paths(self) -> HaiqConfig:
         """`data_dir` 是根：`db_path` / `media.dir` 没显式写就跟它走。
@@ -191,17 +197,46 @@ class HaiqConfig(BaseModel):
         return self
 
 
-def _env_override(raw: dict[str, Any]) -> dict[str, Any]:
-    """少量顶层字段支持 HAIQ_* 环境变量覆盖，便于容器化部署。"""
+def _dotted_keys(raw: dict[str, Any], prefix: str = "") -> set[str]:
+    """把嵌套配置摊平成 `onebot.url` 这样的点号路径集合（判断"文件里到底写没写"）。"""
+    out: set[str] = set()
+    for key, value in raw.items():
+        name = f"{prefix}{key}"
+        out.add(name)
+        if isinstance(value, dict):
+            out |= _dotted_keys(value, f"{name}.")
+    return out
+
+
+def _env_override(raw: dict[str, Any]) -> tuple[dict[str, Any], set[str]]:
+    """少量字段支持 HAIQ_* 环境变量覆盖，便于容器化部署。
+
+    返回 `(raw, 被覆盖的字段集合)`。集合是给面板用的：容器里 `data_dir` 显示 `/data`
+    而文件里写的是 `data`，不标出来就会被当成「面板没按文件加载」。
+    """
+    overridden: set[str] = set()
+
+    def put(key: str, value: Any, dotted: str) -> None:
+        raw[key] = value
+        overridden.add(dotted)
+
     if v := os.environ.get("HAIQ_DATA_DIR"):
-        raw["data_dir"] = v
+        put("data_dir", v, "data_dir")
     if v := os.environ.get("HAIQ_LOG_LEVEL"):
-        raw["log_level"] = v
+        put("log_level", v, "log_level")
     if v := os.environ.get("HAIQ_LOG_JSON"):
-        raw["log_json"] = v.lower() in {"1", "true", "yes", "on"}
+        put("log_json", v.lower() in {"1", "true", "yes", "on"}, "log_json")
     if v := os.environ.get("HAIQ_SECRETS_DIR"):
-        raw["secrets_dir"] = v
-    return raw
+        put("secrets_dir", v, "secrets_dir")
+    if v := os.environ.get("HAIQ_ONEBOT_URL"):
+        # 协议端地址常是公网 IP:端口，不该写进仓库里的 toml；放 .env（已 gitignore）由这里覆盖。
+        block = raw.get("onebot")
+        if not isinstance(block, dict):
+            block = {}
+            raw["onebot"] = block
+        block["url"] = v
+        overridden.add("onebot.url")
+    return raw, overridden
 
 
 # 旧版把生图 / 对话配置放在内核顶层段，现在归插件所有。
@@ -309,9 +344,12 @@ def load_config(path: str | Path | None = None) -> HaiqConfig:
     cfg_path = Path(path) if path else Path(DEFAULT_CONFIG_FILE)
     cfg_path = cfg_path.expanduser().resolve()
     raw: dict[str, Any] = {}
+    file_keys: set[str] = set()
     if cfg_path.is_file():
         raw = _read_toml(cfg_path)
         _warn_misplaced_fields(raw, cfg_path)
+        # 记下「文件里到底写了哪些键」——面板要据此区分"文件值 / 环境变量 / 默认值"。
+        file_keys = _dotted_keys(raw)
 
     # 环境变量覆盖必须**在所有派生路径之前**做：
     # `data_dir` 决定三处落点 —— `data/plugins/<id>.toml`（插件参数）、
@@ -319,7 +357,7 @@ def load_config(path: str | Path | None = None) -> HaiqConfig:
     # 但 `data_dir` 在 toml 里写的是相对路径 `data`；一旦顺序颠倒，
     # 读插件参数会用 CWD 下的 `data`（容器里 = /app/data，被 .dockerignore 排除，
     # 根本不存在），写却写进 /data —— 于是「面板保存成功、重启后全是默认值」。
-    raw = _env_override(raw)
+    raw, env_overridden = _env_override(raw)
     data_dir_hint = Path(raw.get("data_dir") or "data")
 
     # [plugins.<id>] 与顶层 plugins_enabled 分开存放
@@ -350,6 +388,8 @@ def load_config(path: str | Path | None = None) -> HaiqConfig:
             get_logger(__name__).warning("legacy_config_migration_failed", error=type(exc).__name__)
     cfg = HaiqConfig.model_validate(raw)
     cfg.config_path = cfg_path
+    cfg.env_overridden = sorted(env_overridden)
+    cfg.file_keys = sorted(file_keys)
     return cfg
 
 

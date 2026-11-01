@@ -131,9 +131,31 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
+def _field_source(spec: Field, file_keys: set[str], env_keys: set[str]) -> str:
+    """这个字段的值是哪来的：`env`（环境变量覆盖）/ `file`（文件里写了）/ `default`（默认值）。
+
+    面板必须把它显示出来 —— 否则容器里 `data_dir` 显示 `/data`、文件里写的是 `data`，
+    用户只会以为"面板没按文件加载"。
+
+    注意 `log.*` / `path.*` 是**伪段名**：它们在 TOML 里是顶层键（`log_level`），
+    所以这里按「候选路径」匹配，而不是硬拼 `段.键`。
+    """
+    candidates: list[str] = []
+    if spec.section:
+        candidates.append(f"{spec.section}.{spec.key}")
+    candidates.append(spec.toml_path)
+    if any(c in env_keys for c in candidates):
+        return "env"
+    if any(c in file_keys for c in candidates):
+        return "file"
+    return "default"
+
+
 def describe(runtime: Any) -> dict[str, Any]:
     """面板配置页的数据源。包含字段当前值与密钥存在性，**不含任何密钥真值**。"""
     cfg = runtime.config
+    file_keys = set(getattr(cfg, "file_keys", ()) or ())
+    env_keys = set(getattr(cfg, "env_overridden", ()) or ())
     fields: list[dict[str, Any]] = []
     for spec in SCHEMA:
         fields.append(
@@ -152,12 +174,14 @@ def describe(runtime: Any) -> dict[str, Any]:
                 "choices": list(spec.choices),
                 "readonly": spec.readonly,
                 "help": spec.help,
+                "source": _field_source(spec, file_keys, env_keys),
                 "value": _jsonable(read_value(cfg, spec)),
             }
         )
     return {
         "write_enabled": cfg.webui.write_enabled,
         "config_path": str(cfg.config_path) if cfg.config_path else None,
+        "env_overridden": sorted(env_keys),
         "fields": fields,
         "secrets": _secret_status(runtime),
     }

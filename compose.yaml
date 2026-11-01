@@ -30,6 +30,16 @@ services:
       HAIQ_SECRETS_DIR: /secrets
       PYTHONUNBUFFERED: "1"
       TZ: Asia/Shanghai
+      # Docker Desktop 会把宿主机的 http(s)_proxy 注入容器（来自 ~/.docker/config.json
+      # 的 proxies 段），而**容器里的 127.0.0.1 是它自己** —— 出站全被送去死端口。
+      # 症状：onebot_reconnect ConnectionRefusedError、发图 rich media transfer failed。
+      # 这里显式清空。真要走代理时改成指向宿主机，例如
+      #   HTTP_PROXY: http://host.docker.internal:10808
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      NO_PROXY: "*"
     volumes:
       # 状态：SQLite / 媒体库 / 插件参数。属主必须是容器里的 uid 10001。
       - ./data:/data
