@@ -74,14 +74,32 @@ def routes(ctx: Ctx) -> list[Any]:
 
     async def get_config(_request: Any) -> Any:
         path = Path(ctx.config_path)
+        if path.is_dir():
+            # 真实踩过的：Docker 在宿主机上找不到 bind mount 的**源文件**时，会自动建一个同名
+            # 目录挂进来。此时面板既读不到内容（raw 是空串、**不报错**），写盘又会抛
+            # PermissionError（看着像"没权限"）。所以这里必须说清是"路径变成目录了"。
+            return fail(
+                500,
+                "config_path_is_dir",
+                f"配置路径是个目录，不是文件：{path}。"
+                "宿主机上缺少 haiq.toml / haiq.docker.toml 时，Docker 会自动建一个同名目录挂进来；"
+                "compose 的相对路径是按**执行 compose 的目录**解析的，换个目录启动就会这样。"
+                "在宿主机建好该文件（或改对 compose 里的路径）后重建容器即可。",
+            )
         raw = ""
+        warnings: list[str] = []
         if path.is_file():
             try:
                 raw = path.read_text(encoding="utf-8")
-            except OSError:
-                raw = ""
+            except OSError as exc:
+                warnings.append(f"配置文件读不出来（{exc.strerror or exc}）：{path}")
+        else:
+            warnings.append(
+                f"配置文件不存在：{path} —— 保存会新建它；"
+                "但如果这个目录不在卷里（容器里很常见），重建容器后改动就丢了"
+            )
         # 直接摊平 control.describe：前端拿到的就是 fields / secrets / write_enabled
-        return ok({**control.describe(runtime), "raw": raw, "path": str(path)})
+        return ok({**control.describe(runtime), "raw": raw, "path": str(path), "warnings": warnings})
 
     async def post_config(request: Any) -> Any:
         try:

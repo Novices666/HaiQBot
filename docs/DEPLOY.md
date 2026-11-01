@@ -136,6 +136,20 @@ docker compose logs -f haiqbot
 | `./haiq.docker.toml` | `/app/haiq.toml` | 容器版配置（**不能加 `:ro`**，面板保存要写它） |
 | `.env` | 进程环境（`env_file`） | `HAIQ_VAULT_PASSPHRASE` |
 
+> ⚠️ **单文件 bind mount 有个坑：源文件不存在时，Docker 会建一个同名目录挂进来。**
+> compose 里的相对路径按**执行 `docker compose` 的目录**解析 —— 换个目录启动，
+> `./haiq.docker.toml` 找不到就变成空目录，于是容器里的 `/app/haiq.toml` 是**目录**：
+> 面板「配置中心」读不到内容（raw 为空）、保存报 `Permission denied`，看着像没权限，
+> 其实是路径不对。一条命令确认：
+>
+> ```bash
+> docker compose exec haiqbot sh -c 'ls -ld /app/haiq.toml; head -3 /app/haiq.toml'
+> ```
+>
+> 第一列是 `d` 而不是 `-`，就是踩了这个坑 → 在宿主机把该文件建好（或改对 compose 里的
+> 路径）后 `docker compose up -d --force-recreate`。新版面板会直接在配置页顶部报
+> `config_path_is_dir` 并说明原因，不再静默显示空内容。
+
 `data_dir` 是**状态根**：`haiq.db`、`media/`、`plugins/`（插件参数）都从它派生。
 容器里它由 `HAIQ_DATA_DIR=/data` 覆盖，于是三者分别是 `/data/haiq.db`、
 `/data/media/`、`/data/plugins/<插件id>.toml` —— 都在 `./data` 卷里，重建容器不会丢。

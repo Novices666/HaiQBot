@@ -314,16 +314,28 @@ def _write_hint(path: Path, exc: OSError) -> str:
     Windows 上 `Permission denied` 的三种成因完全不同，报错却是同一句话：
     文件带只读属性 / 账号没权限 / 文件被别的进程独占（编辑器、同步盘、杀毒），
     外加容器里以只读方式挂载。只回一句 Errno 13 等于什么都没说。
+
+    容器里还有第四种、也是最迷惑的一种：**路径根本不是文件而是目录**
+    （宿主机缺配置文件时 Docker 会自动建同名目录），写它同样报 Permission denied。
     """
     reasons: list[str] = []
+    is_dir = False
     try:
-        if path.exists() and not os.access(path, os.W_OK):
+        is_dir = path.is_dir()
+        if is_dir:
+            reasons.append(
+                f"该路径是个**目录**而不是文件：{path}（宿主机缺少配置文件时 Docker 会自动建同名目录挂进来）"
+            )
+        elif not path.exists():
+            reasons.append("文件不存在，且所在目录不可写")
+        elif not os.access(path, os.W_OK):
             reasons.append("文件是只读的，或当前账号没有写权限")
         if not os.access(path.parent, os.W_OK):
             reasons.append(f"目录 {path.parent} 不可写")
     except OSError:
         pass
-    reasons.append("也可能被别的进程（编辑器 / 同步盘 / 杀毒）独占，或容器里按只读挂载")
+    if not is_dir:
+        reasons.append("也可能被别的进程（编辑器 / 同步盘 / 杀毒）独占，或容器里按只读挂载")
     return "；".join(reasons)
 
 

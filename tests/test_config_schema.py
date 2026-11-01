@@ -167,3 +167,72 @@ def test_policy_defaults_are_lists() -> None:
     assert isinstance(cfg.policy.owners, list)
     assert isinstance(cfg.policy.channel_whitelist, list)
     _ = control  # 保持模块可达，避免误删导入
+
+
+# -- 配置路径本身有问题时（容器里最常见） ----------------------------------- #
+#
+# Docker 在宿主机上找不到 bind mount 的**源文件**时，会自动建一个**同名目录**挂进来。
+# 此时旧的 GET 只是把 raw 置空、一声不吭 —— 面板看着像"读不到配置"，
+# 保存又抛 Permission denied（更像"没权限"）。下面两条钉住"必须说明白"。
+
+
+def _ui_with_config_path(ctl: Runtime, target: Path) -> object:
+    """把 config_path 换成目标路径后再装配面板（build_webui 在构造时就把路径拷走了）。"""
+    ctl.config.config_path = target
+    ctl.media = MediaStore(ctl.store, ctl.config.media, webui=ctl.config.webui)
+    registry = Registry(ctl, storage_root=Path(ctl.config.data_dir) / "plugins")
+    return build_webui(ctl, registry)
+
+
+async def test_config_path_is_directory_reports_clearly(ctl: Runtime, tmp_path: Path) -> None:
+    """路径是目录时，面板必须明确报错，而不是静默返回空内容。"""
+    as_dir = tmp_path / "as-dir" / "haiq.toml"
+    as_dir.mkdir(parents=True)
+    app = _ui_with_config_path(ctl, as_dir)
+
+    async with await _client(app) as client:
+        resp = await client.get("/api/config")
+
+    assert resp.status_code == 500
+    body = resp.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "config_path_is_dir"
+    message = body["error"]["message"]
+    assert "目录" in message
+    assert "haiq.toml" in message
+    # 要给出可动手的下一步，而不是只说"失败了"
+    assert "重建容器" in message
+
+
+async def test_config_path_missing_warns_but_stays_writable(ctl: Runtime, tmp_path: Path) -> None:
+    """文件不存在（裸跑镜像、没挂配置）时仍可用，但必须在响应里点出来。"""
+    missing = tmp_path / "no-such-dir" / "haiq.toml"
+    missing.parent.mkdir()
+    app = _ui_with_config_path(ctl, missing)
+
+    async with await _client(app) as client:
+        got = await client.get("/api/config")
+
+    assert got.status_code == 200
+    data = got.json()["data"]
+    assert data["raw"] == ""
+    assert any("不存在" in w for w in data["warnings"]), data["warnings"]
+
+
+def test_write_hint_names_directory(tmp_path: Path) -> None:
+    """写盘失败的提示要能指出"这是目录"，而不是笼统的"没权限"。"""
+    as_dir = tmp_path / "haiq.toml"
+    as_dir.mkdir()
+    hint = control._write_hint(as_dir, PermissionError(13, "Permission denied"))
+    assert "目录" in hint
+    # 目录场景不该再说"被编辑器/同步盘独占"——那是文件场景的解释
+    assert "独占" not in hint
+
+
+def test_write_hint_keeps_file_case(tmp_path: Path) -> None:
+    """普通文件的提示不能被上面的改动带跑偏。"""
+    target = tmp_path / "haiq.toml"
+    target.write_text('log_level = "INFO"\n', encoding="utf-8")
+    hint = control._write_hint(target, PermissionError(13, "Permission denied"))
+    assert "独占" in hint
+    assert "目录" not in hint
