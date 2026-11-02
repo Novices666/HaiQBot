@@ -62,7 +62,7 @@ const GLOBAL_CSS = `
   /* 页面底色：antd 的 reset 不设 body 背景，暗色下 body 透明会让浏览器默认色透出来
      （某些环境下是白的，切主题会闪一下）。这是原生元素，token 管不到，只能写死。 */
   :root[data-theme="light"] body { background: #ffffff; }
-  :root[data-theme="dark"] body { background: #000000; }
+  :root[data-theme="dark"] body { background: #0d0d0d; }
   /* 跳过导航：键盘用户第一下 Tab 就能直达内容（原生 <a>，antd 没有对应组件） */
   .haiq-skip {
     position: fixed; top: 8px; left: 8px; z-index: 2000;
@@ -293,7 +293,6 @@ export default function App() {
   const nav = (
     <Menu
       mode="inline"
-      theme={mode === "dark" ? "dark" : "light"}
       selectedKeys={[page]}
       items={menuItems}
       style={{ borderInlineEnd: "none" }}
@@ -342,7 +341,7 @@ export default function App() {
           }}
         />
       ) : (
-        <Layout style={{ minHeight: "100vh" }}>
+        <Layout style={{ height: "100vh", overflow: "hidden" }}>
           <a className="haiq-skip" href="#main">
             跳到主内容
           </a>
@@ -353,7 +352,9 @@ export default function App() {
               collapsed={collapsed}
               onCollapse={setCollapsed}
               width={208}
-              theme={mode === "dark" ? "dark" : "light"}
+              // Sider 的 theme 默认值就是 "dark"（深色导航预设：容器 #001529、折叠按钮 #002140），
+              // 全局暗色模式由 ConfigProvider 的算法管，这里必须显式写 light，否则侧栏会出现第二种颜色。
+              theme="light"
               style={{ borderInlineEnd: "1px solid var(--ant-color-split)" }}
             >
               {brand(!collapsed)}
@@ -411,7 +412,7 @@ export default function App() {
               </Space>
             </Layout.Header>
 
-            <Layout.Content style={{ padding: isMobile ? 12 : 20 }}>
+            <Layout.Content style={{ padding: isMobile ? 12 : 20, overflow: "auto" }}>
               <main
                 id="main"
                 tabIndex={-1}

@@ -70,6 +70,12 @@ export function buildTheme(mode: ThemeMode): ThemeConfig {
       // 亮色保持 antd 原值，只补暗色。
       ...(dark
         ? {
+            // 「黑灰」而不是纯黑：纯黑在 OLED 上对比过强、也容易显脏。
+            // 三层（参考 GitHub Dark / VS Code / Linear 的取法）：
+            //   页面 #0d0d0d → 容器 #161616 → 浮层 #1f1f1f
+            colorBgLayout: "#0d0d0d",
+            colorBgContainer: "#161616",
+            colorBgElevated: "#1f1f1f",
             colorBorder: "#666666",
             colorBorderSecondary: "#3a3a3a",
             colorSplit: "rgba(255,255,255,0.16)",
@@ -95,8 +101,8 @@ export function buildTheme(mode: ThemeMode): ThemeConfig {
         headerPadding: "0 24px",
         // antd 默认顶栏 #001529、侧栏 #001529 是「深色导航」预设，
         // 我们的顶栏和侧栏都放深色文字，必须显式给浅底（暗色下同色，不能一个深蓝一个近黑）。
-        headerBg: dark ? "#141414" : "#fff",
-        siderBg: dark ? "#141414" : "#fff",
+        headerBg: dark ? "#161616" : "#fff",
+        siderBg: dark ? "#161616" : "#fff",
       },
       // 选中项：antd 暗色下选中底是品牌蓝 #1668dc、文字自动转白（实测 5.19:1），
       // 达标，不必覆盖。亮色下用浅蓝底 + 深蓝字（5.41:1）。
@@ -109,7 +115,7 @@ export function buildTheme(mode: ThemeMode): ThemeConfig {
       // 危险按钮的「文字」色：antd 默认 #ff4d4f 压白底只有 3.27:1（实测「删除」这类文字按钮）
       Button: { dangerColor: dark ? "#ff7875" : "#cf1322" },
       Card: { paddingLG: 20 },
-      Table: { headerBg: dark ? "#1d1d1d" : "#fafafa" },
+      Table: { headerBg: dark ? "#1f1f1f" : "#fafafa" },
       Collapse: { headerPadding: "10px 14px" },
     },
   };
