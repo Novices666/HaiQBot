@@ -1,4 +1,4 @@
-/** 配置中心：分组表单热改、vault 凭据状态、原始 TOML、快照回滚。密钥真值永不经过这里。 */
+﻿/** 配置中心：分组表单热改、vault 凭据状态、原始 TOML、快照回滚。密钥真值永不经过这里。 */
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -313,7 +313,7 @@ export default function ConfigPage() {
                       title: "操作",
                       width: 120,
                       render: (_v, row) => (
-                        <Button size="small" danger onClick={() => void rollback(row.id)}>
+                        <Button size="small" type="link" danger onClick={() => void rollback(row.id)}>
                           回滚到这份
                         </Button>
                       ),

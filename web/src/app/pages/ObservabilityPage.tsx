@@ -1,4 +1,4 @@
-/** 日志 · 审计 · 媒体：日志按 seq 增量拉取，审计与媒体按需刷新。 */
+﻿/** 日志 · 审计 · 媒体：日志按 seq 增量拉取，审计与媒体按需刷新。 */
 import { useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -398,7 +398,7 @@ function InvocationTab() {
             { value: 30, label: "30 天前" },
           ]}
         />
-        <Button size="small" danger loading={purging} onClick={() => void purge()}>
+        <Button size="small" type="link" danger loading={purging} onClick={() => void purge()}>
           清理{filter ? "该插件的" : ""}记录
         </Button>
       </Flex>

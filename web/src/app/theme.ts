@@ -33,11 +33,15 @@ export function saveTheme(mode: ThemeMode): void {
 export function brandColors(mode: ThemeMode) {
   return mode === "dark"
     ? {
-        primary: "#1677FF",
-        ink: "#69b1ff", // 压在 #141414 上 8.3:1
+        // 暗色：填充要够深才托得住白字（#1668dc + 白字 = 5.2:1），
+        // 墨水要够浅才压得住深底（#69b1ff + #161616 = 8.0:1）
+        primary: "#1668dc",
+        ink: "#69b1ff",
       }
     : {
-        primary: "#1677FF",
+        // 亮色：白字压在 #1677FF 上只有 4.10:1，压 #0958d9 是 5.6:1。
+        // 这是「品牌亮蓝」与 WCAG AA 之间必须二选一的地方，选了达标那一侧。
+        primary: "#0958d9",
         ink: "#0958d9", // 压在白底上 5.6:1
       };
 

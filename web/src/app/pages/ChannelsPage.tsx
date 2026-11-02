@@ -1,4 +1,4 @@
-/** 白名单与风控：频道开关的唯一日常入口（CLI 是应急兜底）。 */
+﻿/** 白名单与风控：频道开关的唯一日常入口（CLI 是应急兜底）。 */
 import { useState } from "react";
 import {
   Alert,
@@ -206,7 +206,7 @@ export default function ChannelsPage() {
                   <Button size="small" onClick={() => open(row)}>
                     编辑
                   </Button>
-                  <Button size="small" danger onClick={() => void remove(row)}>
+                  <Button size="small" type="link" danger onClick={() => void remove(row)}>
                     删除
                   </Button>
                 </Space>
