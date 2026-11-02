@@ -63,6 +63,18 @@ export function buildTheme(mode: ThemeMode): ThemeConfig {
             colorSuccessText: "#237804",
           }),
       colorLink: brand.ink,
+      // 暗色下的「线」：antd 默认压得太淡，实测几乎看不见
+      //   colorBorder          #424242 → 输入框边框只有 1.83:1（WCAG 要求 3:1）
+      //   colorBorderSecondary #303030 → 卡片边框 1.4:1
+      //   colorSplit           rgba(255,255,255,.12) → 顶栏分割线 1.4:1
+      // 亮色保持 antd 原值，只补暗色。
+      ...(dark
+        ? {
+            colorBorder: "#666666",
+            colorBorderSecondary: "#3a3a3a",
+            colorSplit: "rgba(255,255,255,0.16)",
+          }
+        : {}),
       borderRadius: 8,
       // 正文基线 14px：13 在高分屏上偏挤，10–11px 直接不合格
       fontSize: 14,
@@ -86,7 +98,8 @@ export function buildTheme(mode: ThemeMode): ThemeConfig {
         headerBg: dark ? "#141414" : "#fff",
         siderBg: dark ? "#141414" : "#fff",
       },
-      // 只把「选中文字」压深；底色、缩进、圆角都交回 antd 默认 —— 那是你原来的样子
+      // 选中项：antd 暗色下选中底是品牌蓝 #1668dc、文字自动转白（实测 5.19:1），
+      // 达标，不必覆盖。亮色下用浅蓝底 + 深蓝字（5.41:1）。
       Menu: { itemHeight: 40, itemSelectedColor: brand.ink },
       Tabs: {
         itemSelectedColor: brand.ink,

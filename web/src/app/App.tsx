@@ -59,6 +59,10 @@ const NAV: NavItem[] = [
  * 其余一律交给 theme.ts 的 token 和 antd 自己的 reset（main.tsx 已引 antd/dist/reset.css）。
  */
 const GLOBAL_CSS = `
+  /* 页面底色：antd 的 reset 不设 body 背景，暗色下 body 透明会让浏览器默认色透出来
+     （某些环境下是白的，切主题会闪一下）。这是原生元素，token 管不到，只能写死。 */
+  :root[data-theme="light"] body { background: #ffffff; }
+  :root[data-theme="dark"] body { background: #000000; }
   /* 跳过导航：键盘用户第一下 Tab 就能直达内容（原生 <a>，antd 没有对应组件） */
   .haiq-skip {
     position: fixed; top: 8px; left: 8px; z-index: 2000;
