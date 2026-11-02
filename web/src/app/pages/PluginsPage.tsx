@@ -1,5 +1,5 @@
 /** 插件与能力：装载状态、命令、按 config_schema 渲染配置表单、凭据是否已设置。 */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -81,24 +81,6 @@ function groupSchema(schema: SchemaField[]): SchemaGroup[] {
   return loose.length > 0 ? [...kept, { key: "other", label: "其他", fields: loose }] : kept;
 }
 
-/** 一个字段 → 一个控件。保持原样，只把容器从「一条横线」换成分栏栅格。 */
-function FieldControl({
-  field,
-  plugin,
-  collect,
-}: {
-  field: SchemaField;
-  plugin: PluginRow;
-  collect: () => Record<string, unknown>;
-}) {
-  if (field.dynamic) return <LiveField pluginId={plugin.id} field={field} collect={collect} />;
-  if (field.choices && field.choices.length > 0)
-    return <Select options={field.choices.map((c) => ({ value: c, label: c }))} allowClear />;
-  if (field.kind === "bool") return <Switch />;
-  if (field.kind === "int" || field.kind === "float") return <InputNumber style={{ width: "100%" }} />;
-  return <Input />;
-}
-
 function SchemaForm({ plugin, onSaved }: { plugin: PluginRow; onSaved: () => void }) {
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
@@ -115,12 +97,33 @@ function SchemaForm({ plugin, onSaved }: { plugin: PluginRow; onSaved: () => voi
     return values;
   }, [schema, plugin.config]);
 
+  // 关键：antd 的 initialValues 只在 Form **首次挂载**时读一次。
+  // 插件配置在折叠面板里，收起再展开就是一次重挂载 —— 那时 initialValues 已经用掉了，
+  // 字段会全部变空（看起来像「配置读不出来」）。所以每次初始值变化都要显式灌一次。
+  useEffect(() => {
+    form.setFieldsValue(initial);
+  }, [form, initial]);
+
   const groups = useMemo(() => groupSchema(schema), [schema]);
 
   const save = async (values: Record<string, unknown>) => {
+    // 只提交**真正改动**的字段。
+    // 后端 apply_plugin_config 会把收到的每个键都写进插件配置文件，
+    // 而面板的表单值是「文件值 + schema 默认值」的合集 —— 全量提交等于
+    // 把文件里本来没有、只有默认值的键凭空补写一行（实测点一次保存就多出
+    // onebot.port = 3002）。这里按初始值做差异过滤，没改动就不发请求。
+    const changes: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(values)) {
+      if (value === undefined) continue;
+      if (JSON.stringify(value) !== JSON.stringify(initial[key])) changes[key] = value;
+    }
+    if (Object.keys(changes).length === 0) {
+      message.info("没有改动");
+      return;
+    }
     setSaving(true);
     try {
-      await post(`/api/plugins/${plugin.id}/config`, values);
+      await post(`/api/plugins/${plugin.id}/config`, changes);
       message.success(`${plugin.id} 配置已保存`);
       onSaved();
     } catch (exc) {
@@ -138,8 +141,26 @@ function SchemaForm({ plugin, onSaved }: { plugin: PluginRow; onSaved: () => voi
     <Row gutter={[16, 0]}>
       {list.map((field) => (
         <Col key={field.key} xs={24} md={12} xxl={8}>
-          <Form.Item name={field.key} label={field.label ?? field.key} extra={field.description} style={{ marginBottom: 14 }}>
-            <FieldControl field={field} plugin={plugin} collect={collect} />
+          <Form.Item
+            name={field.key}
+            label={field.label ?? field.key}
+            extra={field.description}
+            style={{ marginBottom: 14 }}
+          >
+            {/* 控件必须**直接**放在 Form.Item 里：antd 靠 cloneElement 把 value/onChange
+                注入到直接子元素，中间再包一层自定义组件就会全部丢失 ——
+                表现是「配置文件里有值，面板上一片空白」。 */}
+            {field.dynamic ? (
+              <LiveField pluginId={plugin.id} field={field} collect={collect} />
+            ) : field.choices && field.choices.length > 0 ? (
+              <Select options={field.choices.map((c) => ({ value: c, label: c }))} allowClear />
+            ) : field.kind === "bool" ? (
+              <Switch />
+            ) : field.kind === "int" || field.kind === "float" ? (
+              <InputNumber style={{ width: "100%" }} />
+            ) : (
+              <Input />
+            )}
           </Form.Item>
         </Col>
       ))}
