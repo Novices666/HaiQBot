@@ -35,17 +35,12 @@ export function brandColors(mode: ThemeMode) {
     ? {
         primary: "#1677FF",
         ink: "#69b1ff", // 压在 #141414 上 8.3:1
-        error: "#ff7875",
-        success: "#73d13d",
-        warning: "#ffc53d",
       }
     : {
         primary: "#1677FF",
         ink: "#0958d9", // 压在白底上 5.6:1
-        error: "#cf1322",
-        success: "#237804",
-        warning: "#874d00", // antd 默认 #faad14 当文字只有 1.9:1
       };
+
 }
 
 export function buildTheme(mode: ThemeMode): ThemeConfig {
@@ -55,10 +50,18 @@ export function buildTheme(mode: ThemeMode): ThemeConfig {
     algorithm: dark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
     token: {
       colorPrimary: brand.primary,
-      // 语义色只改「当文字用」的那几个：antd 默认红 #ff4d4f 在白底只有 3.3:1
-      colorError: brand.error,
-      colorSuccess: brand.success,
-      colorWarning: brand.warning,
+      // 语义色分两种用法，别用一个色兼顾：
+      //   colorWarning / colorError  → 图标、边框、浅色底（要鲜亮，antd 默认就对了）
+      //   *Text                      → 纯文字（要够深才过 4.5:1）
+      // 之前我把 colorWarning 直接压成 #874d00，结果 Alert 的图标和边框也变深棕，
+      // 整个「提示」看着发闷 —— 那是修对比度修错了地方。
+      ...(dark
+        ? {}
+        : {
+            colorErrorText: "#cf1322",
+            colorWarningText: "#874d00",
+            colorSuccessText: "#237804",
+          }),
       colorLink: brand.ink,
       borderRadius: 8,
       // 正文基线 14px：13 在高分屏上偏挤，10–11px 直接不合格
@@ -90,6 +93,8 @@ export function buildTheme(mode: ThemeMode): ThemeConfig {
         itemHoverColor: brand.ink,
         itemActiveColor: brand.ink,
       },
+      // 危险按钮的「文字」色：antd 默认 #ff4d4f 压白底只有 3.27:1（实测「删除」这类文字按钮）
+      Button: { dangerColor: dark ? "#ff7875" : "#cf1322" },
       Card: { paddingLG: 20 },
       Table: { headerBg: dark ? "#1d1d1d" : "#fafafa" },
       Collapse: { headerPadding: "10px 14px" },

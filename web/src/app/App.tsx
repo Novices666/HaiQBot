@@ -88,6 +88,19 @@ const GLOBAL_CSS = `
   :root[data-theme="light"] .ant-tag.ant-tag-purple:is(.ant-tag-filled, .ant-tag-outlined) { color: #4f1ba3; }
   :root[data-theme="light"] .ant-tag.ant-tag-magenta:is(.ant-tag-filled, .ant-tag-outlined) { color: #93135f; }
 
+  /* 危险「文字按钮」（type=link / type=text + danger）取的是 colorError，
+     压白底只有 3.27:1。但 colorError 同时是 Alert 图标与边框的颜色，
+     全局压深会让所有提示发闷（踩过），所以只对文字型按钮补这一档。
+     实心危险按钮不动：白字压红底是 antd 全站现状，视觉上并不异常。 */
+  :root[data-theme="light"] .ant-btn-dangerous.ant-btn-link,
+  :root[data-theme="light"] .ant-btn-dangerous.ant-btn-text,
+  :root[data-theme="light"] .ant-btn-dangerous.ant-btn-variant-link,
+  :root[data-theme="light"] .ant-btn-dangerous.ant-btn-variant-text { color: #cf1322; }
+  :root[data-theme="dark"] .ant-btn-dangerous.ant-btn-link,
+  :root[data-theme="dark"] .ant-btn-dangerous.ant-btn-text,
+  :root[data-theme="dark"] .ant-btn-dangerous.ant-btn-variant-link,
+  :root[data-theme="dark"] .ant-btn-dangerous.ant-btn-variant-text { color: #ff7875; }
+
   /* 手机：触控目标 ≥44px（antd 的 token 是全局的，移动端只能靠媒体查询收口） */
   @media (max-width: 767px) {
     .ant-btn, .ant-input, .ant-input-number, .ant-select .ant-select-selector,

@@ -80,7 +80,8 @@ export default function OverviewPage() {
               title="平台在线"
               value={online}
               suffix={`/ ${platformCount}`}
-              valueStyle={{ ...STAT_STYLE, color: online > 0 ? token.colorSuccess : token.colorError }}
+              // 数字是文字，用 *Text 版本（colorSuccess/colorError 是给图标和边框的，压白底只有 2.2–3.3:1）
+              valueStyle={{ ...STAT_STYLE, color: online > 0 ? token.colorSuccessText : token.colorErrorText }}
             />
           </Card>
         </Col>
@@ -103,8 +104,8 @@ export default function OverviewPage() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={token.colorBorderSecondary} />
                 {/* 轴标签 12px：11px 在高分屏上已经糊成一团 */}
-                <XAxis dataKey="t" fontSize={12} tickLine={false} stroke={token.colorTextTertiary} />
-                <YAxis fontSize={12} tickLine={false} allowDecimals={false} stroke={token.colorTextTertiary} />
+                <XAxis dataKey="t" fontSize={12} tickLine={false} stroke={token.colorTextSecondary} />
+                <YAxis fontSize={12} tickLine={false} allowDecimals={false} stroke={token.colorTextSecondary} />
                 <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                 <Area
                   type="monotone"
@@ -118,7 +119,7 @@ export default function OverviewPage() {
                   type="monotone"
                   dataKey="handled"
                   name="已处理"
-                  stroke={token.colorSuccess}
+                  stroke={token.colorSuccessText}
                   strokeWidth={1.5}
                   fillOpacity={0}
                 />
